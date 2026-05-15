@@ -12,6 +12,9 @@ class AndroidShellExecutor {
     companion object {
         private const val TAG = "AndroidShellExecutor"
         private var context: Context? = null
+        private val preferredPermissionLevelCacheLock = Any()
+        @Volatile private var hasCachedPreferredPermissionLevel = false
+        @Volatile private var cachedPreferredPermissionLevel: AndroidPermissionLevel? = null
 
         /**
          * 设置全局上下文引用
@@ -19,6 +22,28 @@ class AndroidShellExecutor {
          */
         fun setContext(appContext: Context) {
             context = appContext.applicationContext
+        }
+
+        fun clearPreferredPermissionLevelCache() {
+            synchronized(preferredPermissionLevelCacheLock) {
+                cachedPreferredPermissionLevel = null
+                hasCachedPreferredPermissionLevel = false
+            }
+        }
+
+        private fun getPreferredPermissionLevelCached(): AndroidPermissionLevel? {
+            if (hasCachedPreferredPermissionLevel) {
+                return cachedPreferredPermissionLevel
+            }
+
+            synchronized(preferredPermissionLevelCacheLock) {
+                if (!hasCachedPreferredPermissionLevel) {
+                    cachedPreferredPermissionLevel =
+                            androidPermissionPreferences.getPreferredPermissionLevel()
+                    hasCachedPreferredPermissionLevel = true
+                }
+                return cachedPreferredPermissionLevel
+            }
         }
 
         private fun getPermissionLevelLabel(level: AndroidPermissionLevel): String {
@@ -64,9 +89,7 @@ class AndroidShellExecutor {
             // 如果调用方显式指定了身份，就直接向下传递；否则使用默认身份
             val identity = identityOverride ?: ShellIdentity.DEFAULT
 
-            val preferredLevel = androidPermissionPreferences.getPreferredPermissionLevel()
-            AppLogger.d(TAG, "Using preferred permission level: $preferredLevel, identity=$identity")
-
+            val preferredLevel = getPreferredPermissionLevelCached()
             val actualLevel = preferredLevel ?: AndroidPermissionLevel.STANDARD
 
             val preferredExecutor = ShellExecutorFactory.getExecutor(ctx, actualLevel)
@@ -80,16 +103,14 @@ class AndroidShellExecutor {
 
             val reason = buildStrictUnavailableReason(actualLevel, executorAvailable, permStatus)
 
-            AppLogger.d(TAG, "Strict permission mode enabled, no fallback. $reason")
+            AppLogger.d(TAG, "Strict permission mode enabled. $reason")
             return CommandResult(false, "", reason, -1)
         }
 
         suspend fun startShellProcess(command: String): ShellProcess {
             val ctx = context ?: throw IllegalStateException("Context not initialized")
 
-            val preferredLevel = androidPermissionPreferences.getPreferredPermissionLevel()
-            AppLogger.d(TAG, "Starting process with preferred permission level: $preferredLevel")
-
+            val preferredLevel = getPreferredPermissionLevelCached()
             val actualLevel = preferredLevel ?: AndroidPermissionLevel.STANDARD
             val preferredExecutor = ShellExecutorFactory.getExecutor(ctx, actualLevel)
             val permStatus = preferredExecutor.hasPermission()
@@ -101,7 +122,7 @@ class AndroidShellExecutor {
 
             val reason = buildStrictUnavailableReason(actualLevel, executorAvailable, permStatus)
 
-            AppLogger.d(TAG, "Strict permission mode enabled, no fallback. $reason")
+            AppLogger.d(TAG, "Strict permission mode enabled. $reason")
             throw SecurityException(reason)
         }
     }

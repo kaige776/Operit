@@ -49,7 +49,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.core.tools.system.AndroidPermissionLevel
+import com.ai.assistance.operit.core.tools.system.AndroidShellExecutor
 import com.ai.assistance.operit.data.preferences.androidPermissionPreferences
+import com.ai.assistance.operit.util.AppLogger
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
@@ -211,6 +213,11 @@ fun PermissionLevelCard(
                                 coroutineScope.launch {
                                     androidPermissionPreferences.savePreferredPermissionLevel(
                                             displayedPermissionLevel
+                                    )
+                                    AndroidShellExecutor.clearPreferredPermissionLevelCache()
+                                    AppLogger.d(
+                                            "PermissionLevelCard",
+                                            "Preferred permission level switched to: $displayedPermissionLevel"
                                     )
                                     Toast.makeText(
                                                     context,

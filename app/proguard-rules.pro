@@ -29,6 +29,11 @@
 -keep class com.ai.assistance.shower.IShowerVideoSink { *; }
 
 # 保留自定义的 UserService 类及 AIDL 接口
+-keep class com.ai.assistance.operit.core.tools.system.shizuku.OperitShizukuShellUserService { *; }
+-keep class com.ai.assistance.operit.core.tools.system.shizuku.IOperitShizukuShellService { *; }
+-keep interface com.ai.assistance.operit.core.tools.system.shizuku.IOperitShizukuShellService { *; }
+-keep class com.ai.assistance.operit.core.tools.system.shizuku.IOperitShizukuShellCallback { *; }
+-keep interface com.ai.assistance.operit.core.tools.system.shizuku.IOperitShizukuShellCallback { *; }
 -keep class com.lyneon.cytoidinfoquerier.service.FileService { *; }
 -keep class com.lyneon.cytoidinfoquerier.IFileService { *; }
 -keep interface com.lyneon.cytoidinfoquerier.IFileService { *; }

@@ -137,21 +137,58 @@ fun ChatHistorySettingsScreen() {
             val result = withContext(Dispatchers.IO) {
                 val workspaces = mutableListOf<UnboundWorkspaceInfo>()
 
-                // 获取已绑定的工作区路径集合
-                val boundWorkspacePaths = chatHistories
-                    .mapNotNull { it.workspace }
-                    .toSet()
-
                 // 1. 检查内部存储工作区 (/data/data/files/workspace)
                 val internalWorkspaceDir = File(context.filesDir, "workspace")
+                val internalWorkspaceRoot = internalWorkspaceDir.canonicalFile
+                val boundInternalWorkspaceNames = chatHistories
+                    .mapNotNull { history ->
+                        val workspace = history.workspace ?: return@mapNotNull null
+                        try {
+                            val workspaceDir = File(workspace).canonicalFile
+                            if (workspaceDir.parentFile?.canonicalFile == internalWorkspaceRoot) {
+                                workspaceDir.name
+                            } else {
+                                null
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.e(
+                                "ChatHistorySettings",
+                                "统计内部工作区绑定失败: chatId=${history.id}, workspace=$workspace",
+                                e
+                            )
+                            null
+                        }
+                    }
+                    .toSet()
+                val boundExternalWorkspacePaths = chatHistories
+                    .mapNotNull { history ->
+                        val workspace = history.workspace ?: return@mapNotNull null
+                        try {
+                            val workspaceDir = File(workspace).canonicalFile
+                            if (workspaceDir.parentFile?.canonicalFile != internalWorkspaceRoot) {
+                                workspace
+                            } else {
+                                null
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.e(
+                                "ChatHistorySettings",
+                                "统计外部工作区绑定失败: chatId=${history.id}, workspace=$workspace",
+                                e
+                            )
+                            null
+                        }
+                    }
+                    .toSet()
+
                 if (internalWorkspaceDir.exists() && internalWorkspaceDir.isDirectory) {
                     internalWorkspaceDir.listFiles { file -> file.isDirectory }?.forEach { dir ->
-                        val fullPath = dir.absolutePath
-                        if (fullPath !in boundWorkspacePaths) {
+                        val workspaceName = dir.canonicalFile.name
+                        if (workspaceName !in boundInternalWorkspaceNames) {
                             workspaces.add(
                                 UnboundWorkspaceInfo(
                                     name = dir.name,
-                                    fullPath = fullPath,
+                                    fullPath = dir.absolutePath,
                                     location = internalStorageLabel
                                 )
                             )
@@ -165,7 +202,7 @@ fun ChatHistorySettingsScreen() {
                 if (externalWorkspaceDir.exists() && externalWorkspaceDir.isDirectory) {
                     externalWorkspaceDir.listFiles { file -> file.isDirectory }?.forEach { dir ->
                         val fullPath = dir.absolutePath
-                        if (fullPath !in boundWorkspacePaths) {
+                        if (fullPath !in boundExternalWorkspacePaths) {
                             workspaces.add(
                                 UnboundWorkspaceInfo(
                                     name = dir.name,

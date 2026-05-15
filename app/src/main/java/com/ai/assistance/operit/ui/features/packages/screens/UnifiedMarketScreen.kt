@@ -103,6 +103,10 @@ private data class MarketMineAuthState(
     val currentUser: GitHubUser? = null
 )
 
+private data class OpeningArtifactProject(
+    val projectId: String
+)
+
 @Composable
 private fun RefreshMarketPaneOnEnter(onRefresh: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -209,6 +213,7 @@ private fun ArtifactMarketPane(
     val installingIds by viewModel.installingIds.collectAsState()
     val projectInstallStates by viewModel.projectInstallStates.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    var openingProject by remember { mutableStateOf<OpeningArtifactProject?>(null) }
     var selectedProject by remember { mutableStateOf<ArtifactProjectDetailResponse?>(null) }
 
     BindMarketSearchToTopBar(
@@ -253,16 +258,39 @@ private fun ArtifactMarketPane(
                 projectInstallStates = projectInstallStates,
                 installingIds = installingIds,
                 onViewDetails = { projectId ->
+                    openingProject = OpeningArtifactProject(projectId = projectId)
                     viewModel.openProject(
                         projectId = projectId,
-                        onOpenSingleNode = onNavigateToDetail,
-                        onOpenNodeTree = { selectedProject = it }
+                        onOpenSingleNode = { issue ->
+                            if (openingProject?.projectId == projectId) {
+                                openingProject = null
+                                onNavigateToDetail(issue)
+                            }
+                        },
+                        onOpenNodeTree = { project ->
+                            if (openingProject?.projectId == projectId) {
+                                openingProject = null
+                                selectedProject = project
+                            }
+                        },
+                        onOpenFailed = {
+                            if (openingProject?.projectId == projectId) {
+                                openingProject = null
+                            }
+                        }
                     )
                 },
                 onInstallRequest = viewModel::installDefaultNode
             )
         }
     )
+
+    openingProject?.let { project ->
+        ArtifactProjectNodeTreeLoadingDialog(
+            projectId = project.projectId,
+            onDismissRequest = { openingProject = null }
+        )
+    }
 
     selectedProject?.let { project ->
         ArtifactProjectNodeTreeDialog(

@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.CodeOff
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -836,6 +837,7 @@ val actualViewModel: ChatViewModel = viewModel ?: viewModel { ChatViewModel(cont
             android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
     val shouldUseGlobalImePadding = !shouldUseChatLocalImeHandling
+    val hasBoundWorkspace = !currentChatView?.workspace.isNullOrBlank()
 
     SideEffect {
         if (isCurrentScreen) {
@@ -847,7 +849,7 @@ val actualViewModel: ChatViewModel = viewModel ?: viewModel { ChatViewModel(cont
 
     // 当showWebView或showAiComputer状态改变时，更新TopAppBar的actions
     // 使用DisposableEffect确保当AIChatScreen离开组合时，actions被清空
-    LaunchedEffect(isCurrentScreen, showWebView, showAiComputer, isWorkspacePreparing, appBarContentColor) {
+    LaunchedEffect(isCurrentScreen, showWebView, showAiComputer, isWorkspacePreparing, appBarContentColor, hasBoundWorkspace) {
         if (isCurrentScreen) {
             setTopBarActions {
                 // AI电脑模式切换按钮
@@ -881,8 +883,12 @@ val actualViewModel: ChatViewModel = viewModel ?: viewModel { ChatViewModel(cont
                         )
                     } else {
                         Icon(
-                                imageVector = Icons.Default.Code,
-                                contentDescription = stringResource(R.string.code_editor),
+                                imageVector =
+                                if (hasBoundWorkspace) Icons.Default.Code
+                                else Icons.Default.CodeOff,
+                                contentDescription =
+                                if (hasBoundWorkspace) stringResource(R.string.workspace)
+                                else stringResource(R.string.setup_workspace),
                                 tint =
                                 if (showWebView) MaterialTheme.colorScheme.primaryContainer
                                 else appBarContentColor

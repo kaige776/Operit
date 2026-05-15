@@ -1099,6 +1099,23 @@ class ChatHistoryDelegate(
         }
     }
 
+    suspend fun deleteMessagesByTimestamps(chatId: String, timestamps: List<Long>) {
+        if (timestamps.isEmpty()) {
+            return
+        }
+
+        runDestructiveHistoryMutation(chatId) {
+            timestamps.distinct().forEach { timestamp ->
+                chatHistoryManager.deleteMessage(chatId, timestamp)
+            }
+
+            if (_currentChatId.value == chatId) {
+                reloadCurrentChatDisplayHistory(chatId)
+            }
+            true
+        }
+    }
+
     fun setMessageFavorite(timestamp: Long, isFavorite: Boolean) {
         coroutineScope.launch {
             val chatId = _currentChatId.value ?: return@launch

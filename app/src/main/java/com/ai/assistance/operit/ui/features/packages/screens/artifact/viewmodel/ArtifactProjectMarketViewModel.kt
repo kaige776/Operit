@@ -206,7 +206,8 @@ class ArtifactProjectMarketViewModel(
     fun openProject(
         projectId: String,
         onOpenSingleNode: (GitHubIssue) -> Unit,
-        onOpenNodeTree: (ArtifactProjectDetailResponse) -> Unit
+        onOpenNodeTree: (ArtifactProjectDetailResponse) -> Unit,
+        onOpenFailed: () -> Unit = {}
     ) {
         viewModelScope.launch {
             try {
@@ -231,6 +232,7 @@ class ArtifactProjectMarketViewModel(
             } catch (e: Exception) {
                 _errorMessage.value = e.message ?: "Failed to open artifact project"
                 AppLogger.e(TAG, "Failed to open artifact project $projectId", e)
+                onOpenFailed()
             }
         }
     }

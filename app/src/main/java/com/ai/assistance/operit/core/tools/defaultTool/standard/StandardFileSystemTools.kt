@@ -3881,12 +3881,18 @@ open class StandardFileSystemTools(protected val context: Context) {
         val sourcePath = tool.parameters.find { it.name == "source" }?.value ?: ""
         val zipPath = tool.parameters.find { it.name == "destination" }?.value ?: ""
         val environment = tool.parameters.find { it.name == "environment" }?.value
+        val includeRootDirectoryParameter = tool.parameters.find { it.name == "include_root_directory" }
         val includeRootDirectory =
-            when (tool.parameters.find { it.name == "include_root_directory" }?.value?.trim()?.lowercase()) {
-                null, "" -> true
-                "true", "1", "yes", "y", "on" -> true
-                "false", "0", "no", "n", "off" -> false
-                else -> true
+            if (includeRootDirectoryParameter == null) {
+                true
+            } else {
+                includeRootDirectoryParameter.value.toBooleanStrictOrNull()
+                    ?: return ToolResult(
+                        toolName = tool.name,
+                        success = false,
+                        result = StringResultData(""),
+                        error = "include_root_directory must be true or false"
+                    )
             }
         PathValidator.validateAndroidPath(sourcePath, tool.name, "source")?.let { return it }
         PathValidator.validateAndroidPath(zipPath, tool.name, "destination")?.let { return it }

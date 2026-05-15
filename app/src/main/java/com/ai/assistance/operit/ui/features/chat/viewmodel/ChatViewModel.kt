@@ -987,11 +987,26 @@ class ChatViewModel(private val context: Context) : ViewModel() {
     fun deleteMessages(indices: Set<Int>) {
         viewModelScope.launch {
             AppLogger.d(TAG, "准备批量删除消息，索引: $indices")
-            // 按降序排列索引后依次删除，避免索引偏移问题
-            val sortedIndices = indices.sortedDescending()
-            sortedIndices.forEach { index ->
-                chatHistoryDelegate.deleteMessage(index)
+            val chatIdSnapshot = chatHistoryDelegate.currentChatId.value
+            if (chatIdSnapshot == null) {
+                uiStateDelegate.showToast(context.getString(R.string.chat_no_active_conversation))
+                return@launch
             }
+
+            val historySnapshot = chatHistoryDelegate.chatHistory.value
+            val sortedIndices = indices.sortedDescending()
+            val timestamps = mutableListOf<Long>()
+            for (index in sortedIndices) {
+                val message = historySnapshot.getOrNull(index)
+                if (message == null) {
+                    AppLogger.w(TAG, "批量删除消息索引无效: index=$index, historySize=${historySnapshot.size}")
+                    uiStateDelegate.showErrorMessage(context.getString(R.string.chat_invalid_message_index))
+                    return@launch
+                }
+                timestamps += message.timestamp
+            }
+
+            chatHistoryDelegate.deleteMessagesByTimestamps(chatIdSnapshot, timestamps)
             AppLogger.d(TAG, "批量删除完成")
         }
     }

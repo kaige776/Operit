@@ -115,9 +115,12 @@ fun getJsToolsDefinition(): String {
                     if (environment) params.environment = environment;
                     return toolCall("edit_file", params);
                 },
-                zip: (source, destination, environment) => {
+                zip: (source, destination, environment, include_root_directory) => {
                     const params = { source, destination };
                     if (environment) params.environment = environment;
+                    if (include_root_directory !== undefined) {
+                        params.include_root_directory = include_root_directory ? "true" : "false";
+                    }
                     return toolCall("zip_files", params);
                 },
                 unzip: (source, destination, environment) => {

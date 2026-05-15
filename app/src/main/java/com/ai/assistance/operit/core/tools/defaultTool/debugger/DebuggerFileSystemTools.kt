@@ -2043,15 +2043,25 @@ open class DebuggerFileSystemTools(context: Context) : AccessibilityFileSystemTo
         }
         val sourcePath = tool.parameters.find { it.name == "source" }?.value ?: ""
         val zipPath = tool.parameters.find { it.name == "destination" }?.value ?: ""
+        val includeRootDirectoryParameter = tool.parameters.find { it.name == "include_root_directory" }
+        val includeRootDirectory =
+                if (includeRootDirectoryParameter == null) {
+                    true
+                } else {
+                    includeRootDirectoryParameter.value.toBooleanStrictOrNull()
+                            ?: return ToolResult(
+                                    toolName = tool.name,
+                                    success = false,
+                                    result = StringResultData(""),
+                                    error = "include_root_directory must be true or false"
+                            )
+                }
         PathValidator.validateAndroidPath(sourcePath, tool.name, "source")?.let { return it }
         PathValidator.validateAndroidPath(zipPath, tool.name, "destination")?.let { return it }
 
         if (isOperitInternalPath(sourcePath) || isOperitInternalPath(zipPath)) {
             return super.zipFiles(tool)
         }
-
-        val actualSourcePath = sourcePath // No PathMapper in debugger tools
-        val actualZipPath = zipPath
 
         if (sourcePath.isBlank() || zipPath.isBlank()) {
             return ToolResult(
@@ -2063,10 +2073,14 @@ open class DebuggerFileSystemTools(context: Context) : AccessibilityFileSystemTo
         }
 
         return try {
+            val archiveSourcePath =
+                    sourcePath.trimEnd('/').let {
+                        if (it.isEmpty() && sourcePath.startsWith("/")) "/" else it
+                    }
             // First, check if the source path exists
             val existsResult =
                     AndroidShellExecutor.executeShellCommand(
-                            "test -e '$sourcePath' && echo 'exists' || echo 'not exists'"
+                            "test -e ${shQuote(archiveSourcePath)} && echo 'exists' || echo 'not exists'"
                     )
             if (existsResult.stdout.trim() != "exists") {
                 return ToolResult(
@@ -2080,20 +2094,19 @@ open class DebuggerFileSystemTools(context: Context) : AccessibilityFileSystemTo
             // Check if source is a directory
             val isDirResult =
                     AndroidShellExecutor.executeShellCommand(
-                            "test -d '$sourcePath' && echo 'true' || echo 'false'"
+                            "test -d ${shQuote(archiveSourcePath)} && echo 'true' || echo 'false'"
                     )
             val isDirectory = isDirResult.stdout.trim() == "true"
 
             // Create parent directory for zip file if needed
             val zipDir = File(zipPath).parent
             if (zipDir != null) {
-                AndroidShellExecutor.executeShellCommand("mkdir -p '$zipDir'")
+                AndroidShellExecutor.executeShellCommand("mkdir -p ${shQuote(zipDir)}")
             }
 
             // Use Java's ZipOutputStream to create the zip file
             // We'll use ADB to copy files to/from the device and process locally
-            val sourceFile = File(sourcePath)
-            val destZipFile = File(zipPath)
+            val sourceFile = File(archiveSourcePath)
 
             // Initialize buffer for file copy
             val buffer = ByteArray(1024)
@@ -2113,7 +2126,7 @@ open class DebuggerFileSystemTools(context: Context) : AccessibilityFileSystemTo
                     // For directories, we need to list all files and add them
                     // to the zip
                     val listResult =
-                            AndroidShellExecutor.executeShellCommand("find '$sourcePath' -type f")
+                            AndroidShellExecutor.executeShellCommand("find ${shQuote(archiveSourcePath)} -type f")
                     val fileList = listResult.stdout.trim().split("\n").filter { it.isNotEmpty() }
 
                     // Create ZIP output stream
@@ -2124,12 +2137,23 @@ open class DebuggerFileSystemTools(context: Context) : AccessibilityFileSystemTo
                         for (filePath in fileList) {
                             // Get the file path relative to the source
                             // directory
-                            val relativePath = filePath.substring(sourcePath.length + 1)
+                            val pathInsideSource =
+                                    if (archiveSourcePath == "/") {
+                                        filePath.removePrefix("/")
+                                    } else {
+                                        filePath.removePrefix("$archiveSourcePath/")
+                                    }
+                            val relativePath =
+                                    if (includeRootDirectory && sourceFile.name.isNotEmpty()) {
+                                        "${sourceFile.name}/$pathInsideSource"
+                                    } else {
+                                        pathInsideSource
+                                    }
 
                             // Copy the file from device to temp file
                             val pullResult =
                                     AndroidShellExecutor.executeShellCommand(
-                                            "cat '$filePath' > '${tempSourceFile.absolutePath}'"
+                                            "cat ${shQuote(filePath)} > ${shQuote(tempSourceFile.absolutePath)}"
                                     )
                             if (!pullResult.success) {
                                 continue // Skip this file if we
@@ -2167,7 +2191,7 @@ open class DebuggerFileSystemTools(context: Context) : AccessibilityFileSystemTo
                     // Copy the file from device to temp file
                     val pullResult =
                             AndroidShellExecutor.executeShellCommand(
-                                    "cat '$sourcePath' > '${tempSourceFile.absolutePath}'"
+                                    "cat ${shQuote(archiveSourcePath)} > ${shQuote(tempSourceFile.absolutePath)}"
                             )
                     if (!pullResult.success) {
                         return ToolResult(
@@ -2217,7 +2241,7 @@ open class DebuggerFileSystemTools(context: Context) : AccessibilityFileSystemTo
                 // Push the ZIP file to the destination
                 val pushResult =
                         AndroidShellExecutor.executeShellCommand(
-                                "cat '${tempZipFile.absolutePath}' > '$zipPath'"
+                                "cat ${shQuote(tempZipFile.absolutePath)} > ${shQuote(zipPath)}"
                         )
                 if (!pushResult.success) {
                     return ToolResult(
