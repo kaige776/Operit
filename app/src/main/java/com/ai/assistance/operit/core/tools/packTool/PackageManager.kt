@@ -95,8 +95,11 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
 
     private val activePackageStateIds = ConcurrentHashMap<String, String?>()
 
-    private val toolPkgContainers = ConcurrentHashMap<String, ToolPkgContainerRuntime>()
-    private val toolPkgSubpackageByPackageName = ConcurrentHashMap<String, ToolPkgSubpackageRuntime>()
+    private val toolPkgManager = ToolPkgManager(context)
+    private val toolPkgContainers: MutableMap<String, ToolPkgContainerRuntime>
+        get() = toolPkgManager.containersInternal
+    private val toolPkgSubpackageByPackageName: MutableMap<String, ToolPkgSubpackageRuntime>
+        get() = toolPkgManager.subpackageByPackageNameInternal
 
     data class ToolPkgSubpackageInfo(
         val packageName: String,
@@ -248,9 +251,8 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
     )
 
     internal fun interface ToolPkgRuntimeChangeListener {
-        fun onToolPkgRuntimeChanged()
+        fun onToolPkgRuntimeChanged(activeContainers: List<ToolPkgContainerRuntime>)
     }
-
 
     @Volatile
     private var isInitialized = false
@@ -271,7 +273,6 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
     private var assetPackageScanSnapshot: PackageScanSnapshot? = null
     @Volatile
     private var externalPackageScanCache: Map<String, ExternalPackageScanCacheEntry> = emptyMap()
-    private val toolPkgRuntimeChangeListeners = CopyOnWriteArrayList<ToolPkgRuntimeChangeListener>()
 
     private val skillManager by lazy { SkillManager.getInstance(context) }
 
@@ -279,7 +280,6 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
 
     // JavaScript engine for executing JS package code
     private val jsEngine by lazy { JsEngine(context) }
-    private val toolPkgExecutionEngines = ConcurrentHashMap<String, JsEngine>()
     private val toolPkgFacade by lazy { PackageManagerToolPkgFacade(this) }
 
     // Environment preferences for package-level env variables
@@ -340,25 +340,11 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
     private fun buildEnabledToolPkgContainerRuntimes(
         enabledPackageNames: List<String>
     ): List<ToolPkgContainerRuntime> {
-        val enabledSet = enabledPackageNames.toSet()
-        return toolPkgContainers.values
-            .asSequence()
-            .filter { runtime -> enabledSet.contains(runtime.packageName) }
-            .sortedBy(ToolPkgContainerRuntime::packageName)
-            .toList()
+        return toolPkgManager.getEnabledToolPkgContainerRuntimes(enabledPackageNames)
     }
 
     private fun notifyToolPkgRuntimeChangeListeners() {
-        toolPkgRuntimeChangeListeners.forEach { listener ->
-            runCatching {
-                listener.onToolPkgRuntimeChanged()
-            }.onFailure { error ->
-                logToolPkgError(
-                    "toolpkg runtime change listener failed: ${error.message ?: error.javaClass.simpleName}",
-                    error
-                )
-            }
-        }
+        toolPkgManager.notifyToolPkgRuntimeChangeListeners(getEnabledToolPkgContainerRuntimes())
         runCatching {
             ToolPkgDesktopWidgetHost.refreshAll(context)
         }.onFailure { error ->
@@ -408,33 +394,20 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
         get() = jsEngine
 
     internal fun getToolPkgExecutionEngine(contextKey: String): JsEngine {
-        val normalizedKey = contextKey.trim().ifBlank { "toolpkg_main:default" }
-        return toolPkgExecutionEngines.computeIfAbsent(normalizedKey) { JsEngine(context) }
+        return toolPkgManager.getToolPkgExecutionEngine(contextKey)
     }
 
     internal fun findToolPkgExecutionEngine(contextKey: String): JsEngine? {
-        val normalizedKey = contextKey.trim()
-        if (normalizedKey.isBlank()) {
-            return null
-        }
-        return toolPkgExecutionEngines[normalizedKey]
+        return toolPkgManager.findToolPkgExecutionEngine(contextKey)
     }
 
     fun releaseToolPkgExecutionEngine(contextKey: String) {
-        val normalizedKey = contextKey.trim().ifBlank { return }
-        toolPkgExecutionEngines.remove(normalizedKey)?.destroy()
+        toolPkgManager.releaseToolPkgExecutionEngine(contextKey)
     }
 
     private fun destroyDefaultToolPkgExecutionEngine(packageName: String) {
         val normalizedPackageName = normalizePackageName(packageName)
-        if (normalizedPackageName.isBlank()) {
-            return
-        }
-        releaseToolPkgExecutionEngine("toolpkg_main:$normalizedPackageName")
-        val providerPrefix = "toolpkg_provider:$normalizedPackageName:"
-        toolPkgExecutionEngines.keys
-            .filter { key -> key.startsWith(providerPrefix) }
-            .forEach { key -> releaseToolPkgExecutionEngine(key) }
+        toolPkgManager.destroyDefaultToolPkgExecutionEngine(normalizedPackageName)
     }
 
     internal val toolPkgContainersInternal: MutableMap<String, ToolPkgContainerRuntime>
@@ -452,13 +425,11 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
     }
 
     internal fun addToolPkgRuntimeChangeListener(listener: ToolPkgRuntimeChangeListener) {
-        synchronized(initLock) {
-            if (!toolPkgRuntimeChangeListeners.contains(listener)) {
-                toolPkgRuntimeChangeListeners.add(listener)
-            }
-        }
         runCatching {
-            listener.onToolPkgRuntimeChanged()
+            toolPkgManager.addToolPkgRuntimeChangeListener(
+                listener = listener,
+                activeContainers = getEnabledToolPkgContainerRuntimes()
+            )
         }.onFailure { error ->
             logToolPkgError(
                 "toolpkg runtime change listener initial sync failed: ${error.message ?: error.javaClass.simpleName}",
@@ -468,7 +439,7 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
     }
 
     internal fun removeToolPkgRuntimeChangeListener(listener: ToolPkgRuntimeChangeListener) {
-        toolPkgRuntimeChangeListeners.remove(listener)
+        toolPkgManager.removeToolPkgRuntimeChangeListener(listener)
     }
 
     internal fun getEnabledPackageNameSetInternal(): Set<String> {
@@ -496,21 +467,16 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
             return false
         }
 
-        var cancelledAny = false
-        toolPkgExecutionEngines.values.forEach { engine ->
-            runCatching {
-                if (engine.cancelExecutionsForChat(normalizedChatId, reason)) {
-                    cancelledAny = true
-                }
-            }.onFailure { error ->
-                AppLogger.e(
-                    TAG,
-                    "Failed to cancel toolpkg execution for chatId=$normalizedChatId: ${error.message ?: error.javaClass.simpleName}",
-                    error
-                )
-            }
+        return runCatching {
+            toolPkgManager.cancelExecutionsForChat(normalizedChatId, reason)
+        }.getOrElse { error ->
+            AppLogger.e(
+                TAG,
+                "Failed to cancel toolpkg execution for chatId=$normalizedChatId: ${error.message ?: error.javaClass.simpleName}",
+                error
+            )
+            false
         }
-        return cancelledAny
     }
 
     // Get the external packages directory
@@ -1271,6 +1237,26 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
         return packages.filterKeys { !toolPkgSubpackageByPackageName.containsKey(it) }
     }
 
+    fun getExecutableAvailablePackages(forceRefresh: Boolean = false): Map<String, ToolPackage> {
+        val packages = getAvailablePackages(forceRefresh)
+        return packages.filterKeys { !toolPkgContainers.containsKey(it) }
+    }
+
+    fun getToolPkgPluginContainerDetails(
+        resolveContext: Context? = null
+    ): List<ToolPkgContainerDetails> {
+        ensureInitialized()
+        val localizationContext = resolveContext ?: context
+        return toolPkgContainers.keys
+            .sorted()
+            .mapNotNull { packageName ->
+                getToolPkgContainerDetails(
+                    packageName = packageName,
+                    resolveContext = localizationContext
+                )
+            }
+    }
+
     fun getPublishablePackageSources(): List<PublishablePackageSource> {
         ensureInitialized()
 
@@ -1751,46 +1737,20 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
     ): ToolPkgLoadResult? {
         val startMs = System.currentTimeMillis()
         return try {
-            ZipFile(file).use { archive ->
-                val entryIndex = ToolPkgArchiveParser.buildZipEntryIndex(archive)
-                val readEntryText =
-                    { path: String ->
-                        ToolPkgArchiveParser.readZipEntryText(
-                            archive = archive,
-                            entryIndex = entryIndex,
-                            rawPath = path
+            ToolPkgLoader.loadToolPkgFromExternalFile(
+                file = file,
+                jsEngine = jsEngine,
+                parseJsPackage = { jsContent, onError -> parseJsPackage(jsContent, onError) },
+                reportPackageLoadError = { key, error ->
+                    reportPackageLoadError(
+                        key,
+                        formatPackageLoadError(
+                            message = error,
+                            sourcePath = file.absolutePath
                         )
-                    }
-                jsEngine.withTemporaryToolPkgTextResourceResolver(
-                    resolver = { _, resourcePath -> readEntryText(resourcePath) }
-                ) {
-                    ToolPkgArchiveParser.parseToolPkgFromIndexedEntries(
-                        entryIndex = entryIndex,
-                        readEntryText = readEntryText,
-                        sourceType = ToolPkgSourceType.EXTERNAL,
-                        sourcePath = file.absolutePath,
-                        isBuiltIn = false,
-                        parseJsPackage = { jsContent, onError -> parseJsPackage(jsContent, onError) },
-                        parseMainRegistration = { mainScriptText, toolPkgId, mainScriptPath ->
-                            ToolPkgMainRegistrationScriptParser.parse(
-                                script = mainScriptText,
-                                toolPkgId = toolPkgId,
-                                mainScriptPath = mainScriptPath,
-                                jsEngine = jsEngine
-                            )
-                        },
-                        reportPackageLoadError = { key, error ->
-                            reportPackageLoadError(
-                                key,
-                                formatPackageLoadError(
-                                    message = error,
-                                    sourcePath = file.absolutePath
-                                )
-                            )
-                        }
                     )
                 }
-            }
+            )
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error loading toolpkg from external file: ${file.absolutePath}", e)
             logToolPkgError(
@@ -1808,6 +1768,42 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
         }
     }
 
+    private fun prepareToolPkgAssetCache(
+        assetPath: String,
+        manifestPreview: ToolPkgManifestPreview
+    ): File {
+        val toolPkgId =
+            manifestPreview.manifest.toolpkgId.trim()
+                .ifBlank { throw IllegalArgumentException("manifest.toolpkg_id is required") }
+        val mainEntry =
+            ToolPkgArchiveParser.resolveManifestRelativeZipEntryPath(
+                manifestBasePath = manifestPreview.entryName.substringBeforeLast('/', missingDelimiterValue = ""),
+                rawPath = manifestPreview.manifest.main
+            )
+                ?: throw IllegalArgumentException("manifest.main is required")
+        val signature =
+            buildToolPkgCacheSignature(
+                sourceType = ToolPkgSourceType.ASSET,
+                sourcePath = assetPath,
+                version = manifestPreview.manifest.version,
+                mainEntry = mainEntry
+            )
+                ?: throw IllegalStateException("Failed to build toolpkg cache signature")
+        return ensureToolPkgCacheDir(
+            packageName = toolPkgId,
+            signature = signature,
+            mainEntry = mainEntry,
+            extractArchive = { destinationDir ->
+                ToolPkgArchiveParser.extractZipEntriesFromAsset(
+                    context = context,
+                    assetPath = assetPath,
+                    destinationDir = destinationDir
+                )
+            }
+        )
+            ?: throw IllegalStateException("Failed to prepare toolpkg cache")
+    }
+
     private fun loadToolPkgFromAsset(
         assetPath: String,
         reportPackageLoadError: (key: String, error: String) -> Unit = { key, error ->
@@ -1816,80 +1812,27 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
     ): ToolPkgLoadResult? {
         val startMs = System.currentTimeMillis()
         return try {
-            val manifestPreview =
-                ToolPkgArchiveParser.readToolPkgManifestPreview(
-                    inputStreamFactory = { context.assets.open(assetPath) }
-                )
-                    ?: throw IllegalArgumentException("manifest.hjson or manifest.json not found")
-            val toolPkgId =
-                manifestPreview.manifest.toolpkgId.trim()
-                    .ifBlank { throw IllegalArgumentException("manifest.toolpkg_id is required") }
-            val mainEntry =
-                ToolPkgArchiveParser.resolveManifestRelativeZipEntryPath(
-                    manifestBasePath = manifestPreview.entryName.substringBeforeLast('/', missingDelimiterValue = ""),
-                    rawPath = manifestPreview.manifest.main
-                )
-                    ?: throw IllegalArgumentException("manifest.main is required")
-            val signature =
-                buildToolPkgCacheSignature(
-                    sourceType = ToolPkgSourceType.ASSET,
-                    sourcePath = assetPath,
-                    version = manifestPreview.manifest.version,
-                    mainEntry = mainEntry
-                )
-                    ?: throw IllegalStateException("Failed to build toolpkg cache signature")
-            val extractedDir =
-                ensureToolPkgCacheDir(
-                    packageName = toolPkgId,
-                    signature = signature,
-                    mainEntry = mainEntry,
-                    extractArchive = { destinationDir ->
-                        ToolPkgArchiveParser.extractZipEntriesFromAsset(
-                            context = context,
-                            assetPath = assetPath,
-                            destinationDir = destinationDir
+            ToolPkgLoader.loadToolPkgFromAsset(
+                context = context,
+                assetPath = assetPath,
+                jsEngine = jsEngine,
+                parseJsPackage = { jsContent, onError -> parseJsPackage(jsContent, onError) },
+                prepareAssetCache = { manifestPreview ->
+                    prepareToolPkgAssetCache(
+                        assetPath = assetPath,
+                        manifestPreview = manifestPreview
+                    )
+                },
+                reportPackageLoadError = { key, error ->
+                    reportPackageLoadError(
+                        key,
+                        formatPackageLoadError(
+                            message = error,
+                            sourcePath = assetPath
                         )
-                    }
-                )
-                    ?: throw IllegalStateException("Failed to prepare toolpkg cache")
-            val entryIndex = ToolPkgArchiveParser.buildDirectoryEntryIndex(extractedDir)
-            val readEntryText =
-                { path: String ->
-                    ToolPkgArchiveParser.readDirectoryEntryText(
-                        rootDir = extractedDir,
-                        entryIndex = entryIndex,
-                        rawPath = path
                     )
                 }
-            jsEngine.withTemporaryToolPkgTextResourceResolver(
-                resolver = { _, resourcePath -> readEntryText(resourcePath) }
-            ) {
-                ToolPkgArchiveParser.parseToolPkgFromIndexedEntries(
-                    entryIndex = entryIndex,
-                    readEntryText = readEntryText,
-                    sourceType = ToolPkgSourceType.ASSET,
-                    sourcePath = assetPath,
-                    isBuiltIn = true,
-                    parseJsPackage = { jsContent, onError -> parseJsPackage(jsContent, onError) },
-                    parseMainRegistration = { mainScriptText, toolPkgId, mainScriptPath ->
-                        ToolPkgMainRegistrationScriptParser.parse(
-                            script = mainScriptText,
-                            toolPkgId = toolPkgId,
-                            mainScriptPath = mainScriptPath,
-                            jsEngine = jsEngine
-                        )
-                    },
-                    reportPackageLoadError = { key, error ->
-                        reportPackageLoadError(
-                            key,
-                            formatPackageLoadError(
-                                message = error,
-                                sourcePath = assetPath
-                            )
-                        )
-                    }
-                )
-            }
+            )
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error loading toolpkg from asset: $assetPath", e)
             logToolPkgError(
@@ -3576,10 +3519,7 @@ private constructor(private val context: Context, private val aiToolHandler: AIT
 
     /** Clean up resources when the manager is no longer needed */
     fun destroy() {
-        toolPkgExecutionEngines.values.forEach { engine ->
-            engine.destroy()
-        }
-        toolPkgExecutionEngines.clear()
+        toolPkgManager.destroy()
         jsEngine.destroy()
         mcpManager.shutdown()
     }

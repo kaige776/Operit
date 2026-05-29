@@ -82,6 +82,7 @@ private data class ChatScrollNavigatorSnapshot(
 
 private const val LOCATOR_PREVIEW_CHAR_COUNT = 48
 private const val TAG = "ChatScrollNavigator"
+private const val NAVIGATOR_HIDE_DELAY_MS = 1200L
 
 internal data class ChatScrollMessageAnchor(
     val absoluteTopPx: Float,
@@ -147,7 +148,7 @@ internal fun ChatScrollNavigator(
                 showNavigatorChip = true
                 return@collectLatest
             }
-            delay(650)
+            delay(NAVIGATOR_HIDE_DELAY_MS)
             if (!scrollState.isScrollInProgress && !currentIsDragged) {
                 showNavigatorChip = false
                 userScrollSessionActive = false
@@ -370,7 +371,7 @@ internal fun ChatScrollNavigator(
                 showNavigatorChip = true
                 return@collectLatest
             }
-            delay(650)
+            delay(NAVIGATOR_HIDE_DELAY_MS)
             if (!scrollState.isScrollInProgress && !currentIsDragged) {
                 showNavigatorChip = false
                 userScrollSessionActive = false
@@ -386,7 +387,7 @@ internal fun ChatScrollNavigator(
                 if (scrollState.isScrollInProgress) {
                     val movedAwayFromBottom = currentPosition < lastPosition
                     if (movedAwayFromBottom) {
-                        if (currentAutoScrollToBottom && currentIsDragged) {
+                        if (currentAutoScrollToBottom) {
                             currentOnAutoScrollToBottomChange?.invoke(false)
                         }
                     } else {

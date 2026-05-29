@@ -33,8 +33,8 @@ internal object ToolPkgToolLifecycleBridge : AIToolHook {
     @Volatile
     private var hooks: List<ToolPkgToolLifecycleHookRegistration> = emptyList()
     private val runtimeChangeListener =
-        PackageManager.ToolPkgRuntimeChangeListener {
-            syncToolPkgRegistrations(toolPkgPackageManager().getEnabledToolPkgContainerRuntimes())
+        PackageManager.ToolPkgRuntimeChangeListener { activeContainers ->
+            syncToolPkgRegistrations(activeContainers)
         }
 
     init {

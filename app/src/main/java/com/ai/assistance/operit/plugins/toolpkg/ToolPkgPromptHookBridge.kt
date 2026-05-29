@@ -45,8 +45,8 @@ internal object ToolPkgPromptHookBridge {
     @Volatile
     private var promptEstimateFinalizeHooks: List<ToolPkgPromptHookRegistration> = emptyList()
     private val runtimeChangeListener =
-        PackageManager.ToolPkgRuntimeChangeListener {
-            syncToolPkgRegistrations(toolPkgPackageManager().getEnabledToolPkgContainerRuntimes())
+        PackageManager.ToolPkgRuntimeChangeListener { activeContainers ->
+            syncToolPkgRegistrations(activeContainers)
         }
 
     private object PromptInputBridge : PromptInputHook {

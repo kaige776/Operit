@@ -889,8 +889,8 @@ object ToolPkgCommonBridgePlugin : OperitPlugin {
     override val id: String = "builtin.toolpkg.common-bridge"
     private val installed = AtomicBoolean(false)
     private val runtimeChangeListener =
-        PackageManager.ToolPkgRuntimeChangeListener {
-            syncToolPkgRegistrations(toolPkgPackageManager().getEnabledToolPkgContainerRuntimes())
+        PackageManager.ToolPkgRuntimeChangeListener { activeContainers ->
+            syncToolPkgRegistrations(activeContainers)
         }
 
     override fun register() {

@@ -1355,11 +1355,10 @@ class StandardWebVisitTool(private val context: Context) : ToolExecutor {
                                         if (autoCountdownActive.value) {
                                             // 如果正在倒计时，则取消倒计时
                                             autoCountdownActive.value = false
-                                        } else if (pageLoaded.value &&
-                                                        !hasExtractedContent.value &&
+                                        } else if (!hasExtractedContent.value &&
                                                         autoModeEnabled.value
                                         ) {
-                                            // 如果页面已加载但未提取内容，且处于自动模式，则切换到手动模式
+                                            // 如果尚未提取内容，且处于自动模式，则切换到手动模式
                                             autoModeEnabled.value = false
                                         } else {
                                             // 其他情况为取消操作
@@ -1373,8 +1372,7 @@ class StandardWebVisitTool(private val context: Context) : ToolExecutor {
                                 Text(
                                         when {
                                             autoCountdownActive.value -> context.getString(R.string.webvisit_button_cancel_countdown)
-                                            pageLoaded.value &&
-                                                    !hasExtractedContent.value &&
+                                            !hasExtractedContent.value &&
                                                     autoModeEnabled.value -> context.getString(R.string.webvisit_button_cancel_auto)
                                             else -> context.getString(R.string.webvisit_button_cancel)
                                         },

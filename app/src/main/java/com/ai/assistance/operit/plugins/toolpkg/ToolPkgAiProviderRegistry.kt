@@ -11,8 +11,8 @@ internal object ToolPkgAiProviderRegistry {
     private var providersById: Map<String, ToolPkgAiProviderRegistration> = emptyMap()
 
     private val runtimeChangeListener =
-        PackageManager.ToolPkgRuntimeChangeListener {
-            syncToolPkgRegistrations(toolPkgPackageManager().getEnabledToolPkgContainerRuntimes())
+        PackageManager.ToolPkgRuntimeChangeListener { activeContainers ->
+            syncToolPkgRegistrations(activeContainers)
         }
 
     fun register() {
