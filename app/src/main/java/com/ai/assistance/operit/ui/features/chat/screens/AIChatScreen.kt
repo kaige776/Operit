@@ -140,7 +140,8 @@ val actualViewModel: ChatViewModel = viewModel ?: viewModel { ChatViewModel(cont
 
     // Monitor shared files from external apps
     val sharedFiles by SharedFileHandler.sharedFiles.collectAsState()
-    val sharedLinks by SharedFileHandler.sharedLinks.collectAsState()
+    val sharedFileText by SharedFileHandler.sharedFileText.collectAsState()
+    val sharedText by SharedFileHandler.sharedText.collectAsState()
 
     // 添加麦克风权限请求启动器
     val requestMicrophonePermissionLauncher =
@@ -422,13 +423,14 @@ val actualViewModel: ChatViewModel = viewModel ?: viewModel { ChatViewModel(cont
 
     SharedIncomingContentHandler(
         sharedFiles = sharedFiles,
-        sharedLinks = sharedLinks,
+        sharedFileText = sharedFileText,
+        sharedText = sharedText,
         chatHistories = chatHistories,
         currentChatId = currentChatId,
         onHandleSharedFiles = actualViewModel::handleSharedFiles,
-        onHandleSharedLinks = actualViewModel::handleSharedLinks,
+        onHandleSharedText = actualViewModel::handleSharedText,
         onClearSharedFiles = SharedFileHandler::clearSharedFiles,
-        onClearSharedLinks = SharedFileHandler::clearSharedLinks
+        onClearSharedText = SharedFileHandler::clearSharedText
     )
 
     val pendingChatDraft by PendingChatDraftHandler.pendingDraft.collectAsState()
@@ -1073,7 +1075,7 @@ val actualViewModel: ChatViewModel = viewModel ?: viewModel { ChatViewModel(cont
                                             actualViewModel.masterPermissionLevel
                                                     .collectAsState()
                                                     .value,
-                                    onTogglePermission = { actualViewModel.toggleMasterPermission() },
+                                    onSetPermissionLevel = actualViewModel::setMasterPermissionLevel,
                                     enableThinkingMode = enableThinkingMode,
                                     onToggleThinkingMode = { actualViewModel.toggleThinkingMode() },
                                     thinkingQualityLevel = thinkingQualityLevel,
@@ -1124,9 +1126,6 @@ val actualViewModel: ChatViewModel = viewModel ?: viewModel { ChatViewModel(cont
                                     },
                                     onManualMemoryUpdate = {
                                         actualViewModel.manuallyUpdateMemory()
-                                    },
-                                    onManualSummarizeConversation = {
-                                        actualViewModel.manuallySummarizeConversation()
                                     },
                                     characterCardBoundChatModelConfigId = characterCardBoundChatModelConfigId,
                                     characterCardBoundChatModelIndex = characterCardBoundChatModelIndex,
@@ -1935,7 +1934,7 @@ private fun ChatInputBottomBar(
                 onToggleFeature = actualViewModel::toggleFeature,
                 inputMenuRuntime = inputMenuRuntime,
                 permissionLevel = permissionLevel,
-                onTogglePermission = actualViewModel::toggleMasterPermission,
+                onSetPermissionLevel = actualViewModel::setMasterPermissionLevel,
                 enableMemoryAutoUpdate = enableMemoryAutoUpdate,
                 onToggleMemoryAutoUpdate = actualViewModel::toggleMemoryAutoUpdate,
                 isAutoReadEnabled = isAutoReadEnabled,

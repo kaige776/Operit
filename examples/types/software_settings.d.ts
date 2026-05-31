@@ -35,6 +35,7 @@ export namespace SoftwareSettings {
         tts_request_body?: string;
         tts_content_type?: string;
         tts_locale?: string;
+        /** TTS voice id. For MIMO voiceclone, use the full data:audio/...;base64,... audio sample. */
         tts_voice_id?: string;
         tts_model_name?: string;
         tts_vits_package_path?: string;

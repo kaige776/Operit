@@ -289,6 +289,7 @@ fun CollapsedDrawerContent(
         Column(
                 modifier =
                         Modifier.fillMaxHeight()
+                                .fillMaxWidth()
                                 .verticalScroll(rememberScrollState())
                                 .padding(vertical = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally

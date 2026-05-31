@@ -8,7 +8,8 @@ import java.io.File
 
 data class WorkspaceChangeSnapshot(
     val changes: List<WorkspaceFileChange>,
-    val omittedCount: Int
+    val omittedCount: Int,
+    val initialRootStructure: String? = null
 )
 
 class WorkspaceChangeTracker private constructor(private val context: Context) {
@@ -46,7 +47,9 @@ class WorkspaceChangeTracker private constructor(private val context: Context) {
         val maxChangedFiles: Int
     ) {
         val changes = LinkedHashMap<String, TrackedChange>()
+        val aiChangedPaths = LinkedHashSet<String>()
         var omittedCount: Int = 0
+        var initialRootStructure: String? = null
     }
 
     private val ownerBindings = LinkedHashMap<String, OwnerBinding>()
@@ -100,9 +103,32 @@ class WorkspaceChangeTracker private constructor(private val context: Context) {
                 )
             }
         val omittedCount = state.omittedCount
+        val initialRootStructure = state.initialRootStructure
         state.changes.clear()
         state.omittedCount = 0
-        return WorkspaceChangeSnapshot(result, omittedCount)
+        state.initialRootStructure = null
+        state.aiChangedPaths.clear()
+        return WorkspaceChangeSnapshot(result, omittedCount, initialRootStructure)
+    }
+
+    @Synchronized
+    fun ignoreAiChanges(
+        workspacePath: String?,
+        workspaceEnv: String?,
+        affectedPaths: List<String>
+    ) {
+        if (workspacePath.isNullOrBlank() || !workspaceEnv.isNullOrBlank() || affectedPaths.isEmpty()) return
+
+        val key = MonitorKey(workspacePath, workspaceEnv)
+        val state = monitors[key] ?: return
+        affectedPaths
+            .mapNotNull { path -> makeRelativePath(workspacePath, path) }
+            .map { path -> path.trimStart('/').replace('\\', '/') }
+            .filter { it.isNotBlank() }
+            .forEach { relativePath ->
+                state.aiChangedPaths.add(relativePath)
+                state.changes.remove(relativePath)
+            }
     }
 
     @Synchronized
@@ -162,7 +188,9 @@ class WorkspaceChangeTracker private constructor(private val context: Context) {
         state = MonitorState(
             observer = observer,
             maxChangedFiles = config.maxChangedFiles.coerceAtLeast(1)
-        )
+        ).also { monitorState ->
+            monitorState.initialRootStructure = buildRootLevelStructure(workspaceDir, rules)
+        }
         return state
     }
 
@@ -179,6 +207,10 @@ class WorkspaceChangeTracker private constructor(private val context: Context) {
     private fun recordChange(state: MonitorState, change: WorkspaceFileChange) {
         val relativePath = change.relativePath.trimStart('/').replace('\\', '/')
         if (relativePath.isBlank()) return
+        if (isAiChangedPath(state, relativePath)) {
+            AppLogger.d(TAG, "Workspace AI change ignored: ${change.kind} $relativePath")
+            return
+        }
 
         if (!state.changes.containsKey(relativePath) && state.changes.size >= state.maxChangedFiles) {
             state.omittedCount += 1
@@ -189,7 +221,55 @@ class WorkspaceChangeTracker private constructor(private val context: Context) {
             TrackedChange(
                 relativePath = relativePath,
                 kind = change.kind
-            )
+        )
         AppLogger.d(TAG, "Workspace change recorded: ${change.kind} $relativePath")
+    }
+
+    private fun isAiChangedPath(state: MonitorState, relativePath: String): Boolean {
+        return state.aiChangedPaths.contains(relativePath)
+    }
+
+    private fun makeRelativePath(workspacePath: String, fullPath: String): String? {
+        val normalizedRoot = File(workspacePath).canonicalFile.absolutePath
+        val normalizedFile = File(fullPath).canonicalFile.absolutePath
+        if (normalizedFile == normalizedRoot) return ""
+        val prefix = "$normalizedRoot${File.separator}"
+        if (!normalizedFile.startsWith(prefix)) return null
+        return normalizedFile.removePrefix(prefix).replace(File.separatorChar, '/')
+    }
+
+    private fun buildRootLevelStructure(workspaceDir: File, rules: List<String>): String {
+        val rootItems =
+            workspaceDir.listFiles()
+                ?.filter { file -> !GitIgnoreFilter.shouldIgnore(file, workspaceDir, rules) }
+                ?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
+                ?: emptyList()
+
+        if (rootItems.isEmpty()) return "工作区为空"
+
+        return buildString {
+            rootItems.forEachIndexed { index, file ->
+                val prefix = if (index == rootItems.size - 1) "└── " else "├── "
+                val icon = if (file.isDirectory) "📁" else "📄"
+                append(prefix)
+                append(icon)
+                append(' ')
+                append(file.name)
+                if (file.isFile && file.length() > 0) {
+                    append(" (")
+                    append(formatFileSize(file.length()))
+                    append(')')
+                }
+                appendLine()
+            }
+        }.trimEnd()
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        return when {
+            bytes < 1024 -> "${bytes}B"
+            bytes < 1024 * 1024 -> "${bytes / 1024}KB"
+            else -> "${bytes / (1024 * 1024)}MB"
+        }
     }
 }

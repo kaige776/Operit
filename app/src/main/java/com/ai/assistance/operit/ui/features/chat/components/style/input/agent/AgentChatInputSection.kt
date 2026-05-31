@@ -204,7 +204,7 @@ fun AgentChatInputSection(
     onToggleFeature: (String) -> Unit = {},
     inputMenuRuntime: String = "main",
     permissionLevel: PermissionLevel = PermissionLevel.ASK,
-    onTogglePermission: () -> Unit = {},
+    onSetPermissionLevel: (PermissionLevel) -> Unit = {},
     enableMemoryAutoUpdate: Boolean = false,
     onToggleMemoryAutoUpdate: () -> Unit = {},
     isAutoReadEnabled: Boolean = false,
@@ -1435,7 +1435,7 @@ fun AgentChatInputSection(
                 isAutoReadEnabled = isAutoReadEnabled,
                 onToggleAutoRead = onToggleAutoRead,
                 permissionLevel = permissionLevel,
-                onTogglePermission = onTogglePermission,
+                onSetPermissionLevel = onSetPermissionLevel,
                 enableTools = enableTools,
                 onToggleTools = onToggleTools,
                 disableStreamOutput = disableStreamOutput,
@@ -2255,7 +2255,7 @@ private fun AgentExtraSettingsPopup(
     isAutoReadEnabled: Boolean,
     onToggleAutoRead: () -> Unit,
     permissionLevel: PermissionLevel,
-    onTogglePermission: () -> Unit,
+    onSetPermissionLevel: (PermissionLevel) -> Unit,
     enableTools: Boolean,
     onToggleTools: () -> Unit,
     disableStreamOutput: Boolean,
@@ -2271,7 +2271,9 @@ private fun AgentExtraSettingsPopup(
     if (!visible) return
 
     var showMemoryDropdown by remember { mutableStateOf(false) }
-    var showDisableSettingsDropdown by remember { mutableStateOf(false) }
+    var showToolPermissionDropdown by remember { mutableStateOf(false) }
+    var showBehaviorDropdown by remember { mutableStateOf(false) }
+    var showPluginDropdown by remember { mutableStateOf(false) }
     var showToolPromptManagerDialog by remember { mutableStateOf(false) }
     var infoPopupContent by remember { mutableStateOf<Pair<String, String>?>(null) }
     val context = LocalContext.current
@@ -2288,6 +2290,8 @@ private fun AgentExtraSettingsPopup(
     }
     val inputMenuTogglesBySlot = inputMenuToggles.groupBy { toggle -> InputMenuToggleSlots.normalize(toggle.slot) }
     val defaultInputMenuToggles = inputMenuTogglesBySlot[InputMenuToggleSlots.DEFAULT].orEmpty()
+    val pluginInputMenuToggles =
+        inputMenuTogglesBySlot[InputMenuToggleSlots.GENERAL].orEmpty() + defaultInputMenuToggles
     val scope = rememberCoroutineScope()
 
     val buildMemoryAutoSaveDetail: suspend () -> String = {
@@ -2356,10 +2360,35 @@ private fun AgentExtraSettingsPopup(
                         expanded = showMemoryDropdown,
                         onExpandedChange = { showMemoryDropdown = it },
                         onManageClick = onManageMemory,
+                        enableMemoryAutoUpdate = enableMemoryAutoUpdate,
+                        onToggleMemoryAutoUpdate = onToggleMemoryAutoUpdate,
+                        disableUserPreferenceDescription = disableUserPreferenceDescription,
+                        onToggleDisableUserPreferenceDescription = onToggleDisableUserPreferenceDescription,
+                        onManualMemoryUpdate = {
+                            onManualMemoryUpdate()
+                            onDismiss()
+                        },
                         onInfoClick = {
                             infoPopupContent =
                                 context.getString(R.string.memory) to
                                     context.getString(R.string.memory_desc)
+                        },
+                        onMemoryAutoUpdateInfoClick = {
+                            scope.launch {
+                                infoPopupContent =
+                                    context.getString(R.string.memory_auto_update) to
+                                        buildMemoryAutoSaveDetail()
+                            }
+                        },
+                        onDisableUserPreferenceDescriptionInfoClick = {
+                            infoPopupContent =
+                                context.getString(R.string.disable_user_preference_description) to
+                                    context.getString(R.string.disable_user_preference_description_desc)
+                        },
+                        onManualMemoryUpdateInfoClick = {
+                            infoPopupContent =
+                                context.getString(R.string.manual_memory_update) to
+                                    context.getString(R.string.manual_memory_update_desc)
                         },
                     )
 
@@ -2370,104 +2399,65 @@ private fun AgentExtraSettingsPopup(
                         )
                     }
 
-                    AgentSimpleToggleSettingItem(
-                        title = stringResource(R.string.memory_auto_update),
-                        icon = if (enableMemoryAutoUpdate) Icons.Rounded.Save else Icons.Outlined.Save,
-                        isChecked = enableMemoryAutoUpdate,
-                        onToggle = onToggleMemoryAutoUpdate,
-                        onInfoClick = {
-                            scope.launch {
-                                infoPopupContent =
-                                    context.getString(R.string.memory_auto_update) to
-                                        buildMemoryAutoSaveDetail()
+                    AgentToolsPermissionGroupItem(
+                        enableTools = enableTools,
+                        permissionLevel = permissionLevel,
+                        expanded = showToolPermissionDropdown,
+                        onExpandedChange = { showToolPermissionDropdown = it },
+                        onSelectPermissionLevel = { level ->
+                            if (!enableTools && level != PermissionLevel.FORBID) {
+                                onToggleTools()
+                            }
+                            if (enableTools && level == PermissionLevel.FORBID) {
+                                onToggleTools()
+                            }
+                            if (permissionLevel != level) {
+                                onSetPermissionLevel(level)
                             }
                         },
-                    )
-
-                    AgentActionSettingItem(
-                        title = stringResource(R.string.manual_memory_update),
-                        icon = Icons.Outlined.Save,
-                        onClick = {
-                            onManualMemoryUpdate()
-                            onDismiss()
-                        },
+                        toolSlotToggles = inputMenuTogglesBySlot[InputMenuToggleSlots.TOOLS].orEmpty(),
+                        onToggleInfoClick = { title, description -> infoPopupContent = title to description },
+                        onManageTools = { showToolPromptManagerDialog = true },
                         onInfoClick = {
                             infoPopupContent =
-                                context.getString(R.string.manual_memory_update) to
-                                    context.getString(R.string.manual_memory_update_desc)
-                        },
-                    )
-
-                    defaultInputMenuToggles.forEach { toggle ->
-                        AgentInputMenuToggleSettingItem(
-                            toggle = toggle,
-                            onInfoClick = { title, description -> infoPopupContent = title to description },
-                        )
-                    }
-
-                    AgentSimpleToggleSettingItem(
-                        title = stringResource(R.string.auto_read_message),
-                        icon =
-                            if (isAutoReadEnabled) {
-                                Icons.AutoMirrored.Rounded.VolumeUp
-                            } else {
-                                Icons.AutoMirrored.Outlined.VolumeOff
-                            },
-                        isChecked = isAutoReadEnabled,
-                        onToggle = onToggleAutoRead,
-                        onInfoClick = {
-                            infoPopupContent =
-                                context.getString(R.string.auto_read_message) to
-                                    context.getString(R.string.auto_read_desc)
-                        },
-                    )
-
-                    AgentSimpleToggleSettingItem(
-                        title = stringResource(R.string.auto_approve),
-                        icon =
-                            if (permissionLevel == PermissionLevel.ALLOW) {
-                                Icons.Rounded.Security
-                            } else {
-                                Icons.Outlined.Security
-                            },
-                        isChecked = permissionLevel == PermissionLevel.ALLOW,
-                        onToggle = onTogglePermission,
-                        onInfoClick = {
-                            infoPopupContent =
-                                context.getString(R.string.auto_approve) to
+                                context.getString(R.string.agent_menu_tools) to
                                     context.getString(R.string.auto_approve_desc)
                         },
                     )
 
-                    AgentDisableSettingsGroupItem(
-                        enableTools = enableTools,
-                        onToggleTools = onToggleTools,
+                    AgentBehaviorSettingsGroupItem(
                         disableStreamOutput = disableStreamOutput,
                         onToggleDisableStreamOutput = onToggleDisableStreamOutput,
-                        disableUserPreferenceDescription = disableUserPreferenceDescription,
-                        onToggleDisableUserPreferenceDescription = onToggleDisableUserPreferenceDescription,
-                        expanded = showDisableSettingsDropdown,
-                        onExpandedChange = { showDisableSettingsDropdown = it },
-                        onManageTools = { showToolPromptManagerDialog = true },
+                        isAutoReadEnabled = isAutoReadEnabled,
+                        onToggleAutoRead = onToggleAutoRead,
+                        expanded = showBehaviorDropdown,
+                        onExpandedChange = { showBehaviorDropdown = it },
                         onInfoClick = {
                             infoPopupContent =
-                                context.getString(R.string.disable_settings_group) to
-                                    context.getString(R.string.disable_settings_group_desc)
+                                context.getString(R.string.agent_menu_behavior) to
+                                    context.getString(R.string.disable_stream_output_desc)
                         },
                         onDisableStreamOutputInfoClick = {
                             infoPopupContent =
                                 context.getString(R.string.disable_stream_output) to
                                     context.getString(R.string.disable_stream_output_desc)
                         },
-                        onDisableToolsInfoClick = {
+                        onAutoReadInfoClick = {
                             infoPopupContent =
-                                context.getString(R.string.disable_tools) to
-                                    context.getString(R.string.disable_tools_desc)
+                                context.getString(R.string.auto_read_message) to
+                                    context.getString(R.string.auto_read_desc)
                         },
-                        onDisableUserPreferenceDescriptionInfoClick = {
+                    )
+
+                    AgentPluginSettingsGroupItem(
+                        toggles = pluginInputMenuToggles,
+                        expanded = showPluginDropdown,
+                        onExpandedChange = { showPluginDropdown = it },
+                        onToggleInfoClick = { title, description -> infoPopupContent = title to description },
+                        onInfoClick = {
                             infoPopupContent =
-                                context.getString(R.string.disable_user_preference_description) to
-                                    context.getString(R.string.disable_user_preference_description_desc)
+                                context.getString(R.string.agent_menu_plugins) to
+                                    context.getString(R.string.manage_packages)
                         },
                     )
                 }
@@ -2502,7 +2492,15 @@ private fun AgentMemorySelectorItem(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onManageClick: () -> Unit,
+    enableMemoryAutoUpdate: Boolean,
+    onToggleMemoryAutoUpdate: () -> Unit,
+    disableUserPreferenceDescription: Boolean,
+    onToggleDisableUserPreferenceDescription: () -> Unit,
+    onManualMemoryUpdate: () -> Unit,
     onInfoClick: () -> Unit,
+    onMemoryAutoUpdateInfoClick: () -> Unit,
+    onDisableUserPreferenceDescriptionInfoClick: () -> Unit,
+    onManualMemoryUpdateInfoClick: () -> Unit,
 ) {
     val currentProfileName =
         preferenceProfiles.find { it.id == currentProfileId }?.name ?: stringResource(R.string.not_selected)
@@ -2611,35 +2609,39 @@ private fun AgentMemorySelectorItem(
                     fontSize = 13.sp,
                 )
             }
+            AgentSimpleToggleSettingItem(
+                title = stringResource(R.string.memory_auto_update),
+                icon = if (enableMemoryAutoUpdate) Icons.Rounded.Save else Icons.Outlined.Save,
+                isChecked = enableMemoryAutoUpdate,
+                onToggle = onToggleMemoryAutoUpdate,
+                onInfoClick = onMemoryAutoUpdateInfoClick,
+            )
+            AgentSimpleToggleSettingItem(
+                title = stringResource(R.string.disable_user_preference_description),
+                icon = Icons.Outlined.DataObject,
+                isChecked = disableUserPreferenceDescription,
+                onToggle = onToggleDisableUserPreferenceDescription,
+                onInfoClick = onDisableUserPreferenceDescriptionInfoClick,
+            )
+            AgentActionSettingItem(
+                title = stringResource(R.string.manual_memory_update),
+                icon = Icons.Outlined.Save,
+                onClick = onManualMemoryUpdate,
+                onInfoClick = onManualMemoryUpdateInfoClick,
+            )
         }
     }
 }
 
 @Composable
-private fun AgentDisableSettingsGroupItem(
-    enableTools: Boolean,
-    onToggleTools: () -> Unit,
-    disableStreamOutput: Boolean,
-    onToggleDisableStreamOutput: () -> Unit,
-    disableUserPreferenceDescription: Boolean,
-    onToggleDisableUserPreferenceDescription: () -> Unit,
+private fun AgentSettingsGroupHeader(
+    title: String,
+    value: String,
+    icon: ImageVector,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
-    onManageTools: () -> Unit,
     onInfoClick: () -> Unit,
-    onDisableStreamOutputInfoClick: () -> Unit,
-    onDisableToolsInfoClick: () -> Unit,
-    onDisableUserPreferenceDescriptionInfoClick: () -> Unit,
 ) {
-    val disabledStates =
-        listOf(
-            disableStreamOutput,
-            !enableTools,
-            disableUserPreferenceDescription,
-        )
-    val disabledCount = disabledStates.count { it }
-    val summaryText = "$disabledCount/${disabledStates.size}"
-
     Row(
         modifier =
             Modifier
@@ -2650,7 +2652,7 @@ private fun AgentDisableSettingsGroupItem(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = Icons.Outlined.Block,
+            imageVector = icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             modifier = Modifier.size(16.dp),
@@ -2665,15 +2667,17 @@ private fun AgentDisableSettingsGroupItem(
         }
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = stringResource(R.string.disable_settings_group) + ":",
+            text = title,
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = summaryText,
+            text = value,
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.primary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
         )
@@ -2684,6 +2688,181 @@ private fun AgentDisableSettingsGroupItem(
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
         )
     }
+}
+
+@Composable
+private fun AgentToolsPermissionGroupItem(
+    enableTools: Boolean,
+    permissionLevel: PermissionLevel,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onSelectPermissionLevel: (PermissionLevel) -> Unit,
+    toolSlotToggles: List<InputMenuToggleDefinition>,
+    onToggleInfoClick: (String, String) -> Unit,
+    onManageTools: () -> Unit,
+    onInfoClick: () -> Unit,
+) {
+    val effectiveLevel = if (enableTools) permissionLevel else PermissionLevel.FORBID
+    val valueText =
+        when (effectiveLevel) {
+            PermissionLevel.ALLOW -> stringResource(R.string.permission_level_allow)
+            PermissionLevel.ASK -> stringResource(R.string.permission_level_ask)
+            PermissionLevel.FORBID -> stringResource(R.string.agent_menu_permission_disabled)
+        }
+
+    AgentSettingsGroupHeader(
+        title = stringResource(R.string.agent_menu_tools),
+        value = valueText,
+        icon = Icons.Outlined.Security,
+        expanded = expanded,
+        onExpandedChange = onExpandedChange,
+        onInfoClick = onInfoClick,
+    )
+
+    if (expanded) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            AgentPermissionSegmentedControl(
+                selectedLevel = effectiveLevel,
+                onSelectPermissionLevel = onSelectPermissionLevel,
+            )
+            toolSlotToggles.forEach { toggle ->
+                AgentInputMenuToggleSettingItem(
+                    toggle = toggle,
+                    onInfoClick = onToggleInfoClick,
+                )
+            }
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(30.dp)
+                        .clickable(onClick = onManageTools),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.manage_tools),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 13.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentPermissionSegmentedControl(
+    selectedLevel: PermissionLevel,
+    onSelectPermissionLevel: (PermissionLevel) -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 32.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.permission_level),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+        listOf(PermissionLevel.FORBID, PermissionLevel.ASK, PermissionLevel.ALLOW).forEach { level ->
+            val isSelected = selectedLevel == level
+            val label =
+                when (level) {
+                    PermissionLevel.ALLOW -> stringResource(R.string.permission_level_allow)
+                    PermissionLevel.ASK -> stringResource(R.string.permission_level_ask)
+                    PermissionLevel.FORBID -> stringResource(R.string.agent_menu_permission_disabled)
+                }
+            Box(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .height(28.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(
+                            if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                Color.Transparent
+                            },
+                        )
+                        .border(
+                            1.dp,
+                            if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)
+                            },
+                            RoundedCornerShape(999.dp),
+                        )
+                        .padding(horizontal = 10.dp)
+                        .clickable { onSelectPermissionLevel(level) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    color =
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (level != PermissionLevel.ALLOW) {
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+        }
+        }
+    }
+}
+
+@Composable
+private fun AgentBehaviorSettingsGroupItem(
+    disableStreamOutput: Boolean,
+    onToggleDisableStreamOutput: () -> Unit,
+    isAutoReadEnabled: Boolean,
+    onToggleAutoRead: () -> Unit,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onInfoClick: () -> Unit,
+    onDisableStreamOutputInfoClick: () -> Unit,
+    onAutoReadInfoClick: () -> Unit,
+) {
+    val valueText =
+        if (disableStreamOutput) {
+            stringResource(R.string.agent_menu_behavior_non_streaming)
+        } else {
+            stringResource(R.string.agent_menu_behavior_streaming)
+        }
+
+    AgentSettingsGroupHeader(
+        title = stringResource(R.string.agent_menu_behavior),
+        value = valueText,
+        icon = Icons.Outlined.Speed,
+        expanded = expanded,
+        onExpandedChange = onExpandedChange,
+        onInfoClick = onInfoClick,
+    )
 
     if (expanded) {
         Column(
@@ -2701,31 +2880,53 @@ private fun AgentDisableSettingsGroupItem(
                 onInfoClick = onDisableStreamOutputInfoClick,
             )
             AgentSimpleToggleSettingItem(
-                title = stringResource(R.string.disable_tools),
-                icon = Icons.Outlined.Block,
-                isChecked = !enableTools,
-                onToggle = onToggleTools,
-                onInfoClick = onDisableToolsInfoClick,
+                title = stringResource(R.string.auto_read_message),
+                icon =
+                    if (isAutoReadEnabled) {
+                        Icons.AutoMirrored.Rounded.VolumeUp
+                    } else {
+                        Icons.AutoMirrored.Outlined.VolumeOff
+                    },
+                isChecked = isAutoReadEnabled,
+                onToggle = onToggleAutoRead,
+                onInfoClick = onAutoReadInfoClick,
             )
-            AgentSimpleToggleSettingItem(
-                title = stringResource(R.string.disable_user_preference_description),
-                icon = Icons.Outlined.Block,
-                isChecked = disableUserPreferenceDescription,
-                onToggle = onToggleDisableUserPreferenceDescription,
-                onInfoClick = onDisableUserPreferenceDescriptionInfoClick,
-            )
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(30.dp)
-                        .clickable(onClick = onManageTools),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = stringResource(R.string.manage_tools),
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 13.sp,
+        }
+    }
+}
+
+@Composable
+private fun AgentPluginSettingsGroupItem(
+    toggles: List<InputMenuToggleDefinition>,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onToggleInfoClick: (String, String) -> Unit,
+    onInfoClick: () -> Unit,
+) {
+    val enabledCount = toggles.count { it.isChecked }
+    val valueText = "${enabledCount}/${toggles.size}"
+
+    AgentSettingsGroupHeader(
+        title = stringResource(R.string.agent_menu_plugins),
+        value = valueText,
+        icon = Icons.Outlined.Hub,
+        expanded = expanded,
+        onExpandedChange = onExpandedChange,
+        onInfoClick = onInfoClick,
+    )
+
+    if (expanded) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                    .padding(horizontal = 12.dp),
+        ) {
+            toggles.forEach { toggle ->
+                AgentInputMenuToggleSettingItem(
+                    toggle = toggle,
+                    onInfoClick = onToggleInfoClick,
                 )
             }
         }

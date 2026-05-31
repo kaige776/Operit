@@ -24,6 +24,8 @@ object WaifuMessageProcessor {
     private const val URL_CHARS = "[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]"
     private const val ENTITY_PLACEHOLDER_PREFIX = "{WAIFUENTITY:"
     private const val ENTITY_PLACEHOLDER_SUFFIX = "}"
+    private val FENCED_CODE_BLOCK_REGEX = Regex("```[^\\r\\n`]*[\\r\\n]?[\\s\\S]*?```")
+    private val UNCLOSED_FENCED_CODE_BLOCK_REGEX = Regex("```[^\\r\\n`]*[\\r\\n]?[\\s\\S]*$")
     private val SENTENCE_SPLIT_REGEX =
         Regex("(?<=[。！？~～])(?![\"'”’」』])|(?<=[!?])(?![\"'”’」』])|(?<=\\.)(?![.\\d\"'”’」』])|(?<=\\.)$|(?<=\\.{3})|(?<=[…](?![…]))")
     private val SENTENCE_END_REGEX =
@@ -179,6 +181,47 @@ object WaifuMessageProcessor {
             }
 
             producerJob.join()
+        }
+    }
+
+    fun streamTtsText(sourceStream: Stream<String>): Stream<Char> = stream {
+        var lastCharWasNewline = true
+
+        suspend fun emitText(text: String) {
+            text.forEach { char ->
+                val isCurrentCharNewline = char == '\n'
+                if (isCurrentCharNewline) {
+                    if (!lastCharWasNewline) {
+                        emit('\n')
+                        lastCharWasNewline = true
+                    }
+                } else if (char.isWhitespace() && lastCharWasNewline) {
+                    Unit
+                } else {
+                    emit(char)
+                    lastCharWasNewline = false
+                }
+            }
+        }
+
+        sourceStream.nativeMarkdownSplitByBlock().collect { blockGroup ->
+            val blockType = blockGroup.tag ?: MarkdownProcessorType.PLAIN_TEXT
+            when (blockType) {
+                MarkdownProcessorType.XML_BLOCK,
+                MarkdownProcessorType.CODE_BLOCK -> {
+                    blockGroup.stream.collect { }
+                    if (!lastCharWasNewline) {
+                        emit('\n')
+                        lastCharWasNewline = true
+                    }
+                }
+
+                else -> {
+                    blockGroup.stream.collect { piece ->
+                        emitText(piece)
+                    }
+                }
+            }
         }
     }
 
@@ -674,6 +717,8 @@ object WaifuMessageProcessor {
             )
 
         return sanitizedContent
+            .replace(FENCED_CODE_BLOCK_REGEX, " ")
+            .replace(UNCLOSED_FENCED_CODE_BLOCK_REGEX, " ")
             // 移除状态标签
             .replace(ChatMarkupRegex.statusTag, "")
             .replace(ChatMarkupRegex.statusSelfClosingTag, "")

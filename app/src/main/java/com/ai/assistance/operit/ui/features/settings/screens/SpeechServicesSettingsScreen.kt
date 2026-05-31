@@ -1253,7 +1253,8 @@ fun SpeechServicesSettingsScreen(
                                     label = { Text(stringResource(R.string.speech_services_mimo_voice_id)) },
                                     placeholder = { Text(stringResource(R.string.speech_services_mimo_voice_id_placeholder)) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
+                                    minLines = 3,
+                                    maxLines = 8,
                                     supportingText = {
                                         Text(
                                             text = stringResource(R.string.speech_services_mimo_voice_id_hint),

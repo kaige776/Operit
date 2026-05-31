@@ -710,6 +710,10 @@ export interface MusicPlaybackResultData {
     volume: number;
     /** Whether current track loops */
     loop: boolean;
+    /** Zero-based queue index when playing a queue */
+    queueIndex?: number | null;
+    /** Queue size when playing a queue */
+    queueSize?: number | null;
     /** Operation message */
     message: string;
     /** Returns a formatted string representation of the music playback result */

@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
     // 存储待处理的分享文件URIs
     private var pendingSharedFileUris: List<Uri>? = null
 
-    private var pendingSharedLinks: List<String>? = null
+    private var pendingSharedText: String? = null
     private var pendingGitHubAuthUri: Uri? = null
     private var pendingShortcutNavItem: NavItem? = null
     private var pendingShortcutRequestId: Long = 0L
@@ -128,33 +128,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun processPendingSharedLinks() {
-        val urls = pendingSharedLinks
-        if (urls == null) {
-            AppLogger.d(TAG, "No pending shared links to process")
+    private fun processPendingSharedText() {
+        if (pendingSharedFileUris != null) {
+            AppLogger.d(TAG, "Pending shared text will be processed with shared files")
             return
         }
 
-        AppLogger.d(TAG, "Processing ${urls.size} pending shared link(s)")
-        urls.forEachIndexed { index, url ->
-            AppLogger.d(TAG, "  [$index] URL: $url")
+        val text = pendingSharedText?.trim()
+        if (text.isNullOrBlank()) {
+            AppLogger.d(TAG, "No pending shared text to process")
+            return
         }
 
-        lifecycleScope.launch {
-            try {
-                SharedFileHandler.setSharedLinks(urls)
-                AppLogger.d(TAG, "Successfully passed shared links to SharedFileHandler")
-                pendingSharedLinks = null
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed to process shared links", e)
-                Toast.makeText(
-                    this@MainActivity,
-                    getString(R.string.chat_process_shared_files_failed, e.message ?: ""),
-                    Toast.LENGTH_LONG
-                ).show()
-                pendingSharedLinks = null
-            }
-        }
+        SharedFileHandler.setSharedText(text)
+        AppLogger.d(TAG, "Successfully passed shared text to SharedFileHandler")
+        pendingSharedText = null
     }
 
     private fun restoreRuntimeTaskViewVisibilityIfNeeded() {
@@ -260,13 +248,13 @@ class MainActivity : ComponentActivity() {
             return
         }
         
-        // 如果是文件分享，立即处理
+        // 如果是分享或打开内容，立即处理
         if (intent?.action == Intent.ACTION_VIEW ||
             intent?.action == Intent.ACTION_SEND ||
             intent?.action == Intent.ACTION_SEND_MULTIPLE
         ) {
             processPendingSharedFiles()
-            processPendingSharedLinks()
+            processPendingSharedText()
         }
     }
 
@@ -305,7 +293,7 @@ class MainActivity : ComponentActivity() {
                 // Handle "Open with" action
                 intent.data?.let { uri ->
                     if (uri.scheme == "http" || uri.scheme == "https") {
-                        pendingSharedLinks = listOf(uri.toString())
+                        pendingSharedText = uri.toString()
                         AppLogger.d(TAG, "Received link to open: $uri")
                     } else {
                         pendingSharedFileUris = listOf(uri)
@@ -324,16 +312,12 @@ class MainActivity : ComponentActivity() {
                 uri?.let {
                     pendingSharedFileUris = listOf(it)
                     AppLogger.d(TAG, "Received shared file: $it")
-                    return false
                 }
 
                 val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
                 if (!sharedText.isNullOrBlank()) {
-                    val urls = extractHttpUrls(sharedText)
-                    if (urls.isNotEmpty()) {
-                        pendingSharedLinks = urls
-                        AppLogger.d(TAG, "Received shared link(s): ${urls.size}")
-                    }
+                    pendingSharedText = sharedText
+                    AppLogger.d(TAG, "Received shared text")
                 }
             }
             Intent.ACTION_SEND_MULTIPLE -> {
@@ -350,11 +334,8 @@ class MainActivity : ComponentActivity() {
 
                 val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
                 if (!sharedText.isNullOrBlank()) {
-                    val urls = extractHttpUrls(sharedText)
-                    if (urls.isNotEmpty()) {
-                        pendingSharedLinks = urls
-                        AppLogger.d(TAG, "Received shared link(s): ${urls.size}")
-                    }
+                    pendingSharedText = sharedText
+                    AppLogger.d(TAG, "Received shared text")
                 }
             }
         }
@@ -395,15 +376,6 @@ class MainActivity : ComponentActivity() {
                 }
             )
         }
-    }
-
-    private fun extractHttpUrls(text: String): List<String> {
-        val regex = Regex("https?://[^\\s<>\\\"]+", setOf(RegexOption.IGNORE_CASE))
-        return regex.findAll(text)
-            .map { it.value.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .toList()
     }
 
     private fun parseRouteArgsJson(raw: String?): Map<String, Any?> {
@@ -483,9 +455,11 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 // Pass the URIs to the chat screen via SharedFileHandler
-                SharedFileHandler.setSharedFiles(uris)
+                val sharedText = pendingSharedText?.trim()
+                SharedFileHandler.setSharedFiles(uris, sharedText)
                 AppLogger.d(TAG, "Successfully passed shared files to SharedFileHandler")
                 pendingSharedFileUris = null
+                pendingSharedText = null
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to process shared files", e)
                 Toast.makeText(
@@ -730,7 +704,7 @@ class MainActivity : ComponentActivity() {
                         else {
                             // 处理待处理的分享文件
                             processPendingSharedFiles()
-                            processPendingSharedLinks()
+                            processPendingSharedText()
                             val shortcutNavItem = if (!showPreferencesGuide) pendingShortcutNavItem else null
                             val shortcutNavRequestId =
                                 if (!showPreferencesGuide) pendingShortcutRequestId else 0L

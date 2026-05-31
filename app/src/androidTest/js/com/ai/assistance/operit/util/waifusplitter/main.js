@@ -339,6 +339,18 @@ function buildTests(adapter) {
       assert(out[1].indexOf("console.log('hi!');") >= 0, 'code block should keep punctuation content');
       assertEq(out[2], '结尾。');
     }),
+    test('tts clean: fenced code block content is removed', () => {
+      const out = adapter.cleanContentForWaifu(
+        "前面可以朗读。\n```kotlin\nval secret = \"不该朗读\"\nprintln(secret)\n```\n后面继续朗读。"
+      );
+      assertEq(out, '前面可以朗读。 后面继续朗读。');
+    }),
+    test('tts clean: unclosed fenced code block content is removed', () => {
+      const out = adapter.cleanContentForWaifu(
+        "前面可以朗读。\n```ts\nconst leaked = \"不该朗读\""
+      );
+      assertEq(out, '前面可以朗读。');
+    }),
     test('markdown split: table stays as a standalone protected segment', () => {
       const out = normalizeList(
         adapter.splitMessageBySentences(

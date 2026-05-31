@@ -318,7 +318,7 @@ open class HttpVoiceProvider(
     ): File? = withContext(Dispatchers.IO) {
         AppLogger.d(
             TAG,
-            "fetchAudioFromServer len=${text.length} preview=\"${speechPreview(text)}\" rate=$rate pitch=$pitch voice=$voiceId extraKeys=${extraParams.keys}"
+            "fetchAudioFromServer len=${text.length} preview=\"${speechPreview(text)}\" rate=$rate pitch=$pitch voice=${voiceId?.length ?: 0} chars extraKeys=${extraParams.keys}"
         )
         if (httpConfig.urlTemplate.isBlank()) {
             AppLogger.e(TAG, "HTTP TTS URL template is not configured.")

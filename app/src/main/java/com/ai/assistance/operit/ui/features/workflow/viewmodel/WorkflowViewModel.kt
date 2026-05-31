@@ -486,6 +486,7 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
         )
 
         return Workflow(
+            id = UUID.randomUUID().toString(),
             name = name,
             description = description,
             nodes = listOf(trigger, startChat, createChat, extractMessage, sendMessage, stopChat, sendBroadcast, closeAllDisplays),
@@ -562,6 +563,7 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
         )
 
         return Workflow(
+            id = UUID.randomUUID().toString(),
             name = name,
             description = description,
             nodes = listOf(trigger, startChat, createChat, sendMessage, stopChat, closeAllDisplays),
@@ -644,6 +646,7 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
         )
 
         return Workflow(
+            id = UUID.randomUUID().toString(),
             name = name,
             description = description,
             nodes = listOf(
@@ -755,6 +758,7 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
         )
 
         return Workflow(
+            id = UUID.randomUUID().toString(),
             name = name,
             description = description,
             nodes = listOf(
@@ -887,6 +891,7 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
         )
 
         return Workflow(
+            id = UUID.randomUUID().toString(),
             name = name,
             description = description,
             nodes = listOf(
@@ -949,6 +954,7 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
         )
 
         return Workflow(
+            id = UUID.randomUUID().toString(),
             name = name,
             description = description,
             nodes = listOf(trigger, mainAction, onSuccess, onError),
@@ -985,6 +991,7 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
         )
 
         return Workflow(
+            id = UUID.randomUUID().toString(),
             name = name,
             description = description,
             nodes = listOf(trigger, startChat),
@@ -1043,6 +1050,7 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
             error = null
             
             val workflow = Workflow(
+                id = UUID.randomUUID().toString(),
                 name = name,
                 description = description
             )

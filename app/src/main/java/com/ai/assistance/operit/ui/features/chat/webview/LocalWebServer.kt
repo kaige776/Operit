@@ -2,36 +2,43 @@ package com.ai.assistance.operit.ui.features.chat.webview
 
 import android.content.Context
 import android.os.Environment
-import com.ai.assistance.operit.util.AppLogger
-import com.ai.assistance.operit.util.PortProcessKiller
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
+import android.util.Base64
+import android.webkit.CookieManager
 import com.ai.assistance.operit.core.tools.AIToolHandler
 import com.ai.assistance.operit.core.tools.BinaryFileContentData
 import com.ai.assistance.operit.core.tools.DirectoryListingData
-import com.ai.assistance.operit.core.tools.StringResultData
 import com.ai.assistance.operit.data.model.AITool
 import com.ai.assistance.operit.data.model.ToolParameter
 import com.ai.assistance.operit.ui.features.chat.webview.workspace.workspaceMimeTypeForPath
+import com.ai.assistance.operit.util.AppLogger
 import fi.iki.elonen.NanoHTTPD
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.io.FileNotFoundException
+import java.io.FileDescriptor
+import java.io.FilterInputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.InetAddress
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
+import java.net.SocketAddress
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.util.Locale
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import android.util.Base64
-import android.webkit.CookieManager
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.FilterInputStream
-import java.io.InputStream
-import java.util.Locale
 
 @Serializable
 data class FileApiEntry(val name: String, val isDirectory: Boolean)
@@ -41,15 +48,19 @@ class LocalWebServer
 private constructor(
     private val context: Context,
     private val port: Int,
-    private var rootPath: String,
+    initialRootPath: String,
     private val type: ServerType
 ) : NanoHTTPD(port) {
 
+    @Volatile
+    private var rootPath: String = initialRootPath
+    @Volatile
     private var workspaceEnv: String? = null
     private val proxyClient = OkHttpClient.Builder()
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
+    private val serverLock = Any()
 
     enum class ServerType {
         WORKSPACE
@@ -84,41 +95,295 @@ private constructor(
                 server
             }
         }
+
+        private fun createSocket(address: InetAddress): FileDescriptor {
+            return try {
+                val domain = when (address) {
+                    is Inet6Address -> OsConstants.AF_INET6
+                    is Inet4Address -> OsConstants.AF_INET
+                    else -> OsConstants.AF_INET
+                }
+                Os.socket(domain, OsConstants.SOCK_STREAM or OsConstants.SOCK_CLOEXEC, 0)
+            } catch (e: ErrnoException) {
+                throw SocketException(e.message)
+            }
+        }
+
+        private fun setSocketIntOption(
+            descriptor: FileDescriptor,
+            level: Int,
+            option: Int,
+            value: Int
+        ) {
+            try {
+                Os.setsockoptInt(descriptor, level, option, value)
+            } catch (e: ErrnoException) {
+                throw SocketException(e.message)
+            }
+        }
+
+        private fun setSocketReceiveTimeout(descriptor: FileDescriptor, timeoutMs: Int) {
+            try {
+                Os.setsockoptTimeval(
+                    descriptor,
+                    OsConstants.SOL_SOCKET,
+                    OsConstants.SO_RCVTIMEO,
+                    android.system.StructTimeval.fromMillis(timeoutMs.toLong())
+                )
+            } catch (e: ErrnoException) {
+                throw SocketException(e.message)
+            }
+        }
     }
 
-    private val isServerRunning = AtomicBoolean(false)
+    init {
+        setServerSocketFactory(CloseOnExecServerSocketFactory)
+    }
+
+    @Volatile
+    private var isServerRunning = false
 
     @Throws(IOException::class)
     override fun start() {
-        // 检查服务器是否已经在运行，避免重复启动
-        if (isServerRunning.get()) {
-            AppLogger.d(TAG, "服务器已在端口 $port 上运行，跳过启动")
-            return
+        synchronized(serverLock) {
+            if (isServerRunning) {
+                AppLogger.d(TAG, "服务器已在端口 $port 上运行，跳过启动")
+                return
+            }
+            super.start(SOCKET_READ_TIMEOUT, false)
+            isServerRunning = true
+            AppLogger.d(TAG, "本地Web服务器已在端口 $port 上启动, 根目录: $rootPath")
         }
-        PortProcessKiller.killListeners(port)
-        super.start(SOCKET_READ_TIMEOUT, false)
-        AppLogger.d(TAG, "本地Web服务器已在端口 $port 上启动, 根目录: $rootPath")
-        isServerRunning.set(true)
     }
 
     override fun stop() {
-        super.stop()
-        isServerRunning.set(false)
-        AppLogger.d(TAG, "Local server stopped at port: $port")
+        synchronized(serverLock) {
+            super.stop()
+            isServerRunning = false
+            AppLogger.d(TAG, "Local server stopped at port: $port")
+        }
     }
 
     fun updateChatWorkspace(newWorkspacePath: String, newWorkspaceEnv: String?) {
-        // This is now specific to the workspace server.
-        // A better approach would be to create a new instance if the path changes fundamentally,
-        // but for now, we'll just update the path for the WORKSPACE instance.
-        this.rootPath = newWorkspacePath
-        this.workspaceEnv = newWorkspaceEnv
-        ensureWorkspaceDirExists(newWorkspacePath)
-        AppLogger.d(TAG, "Workspace path updated to: $rootPath env=$workspaceEnv")
+        synchronized(serverLock) {
+            this.rootPath = newWorkspacePath
+            this.workspaceEnv = newWorkspaceEnv
+            ensureWorkspaceDirExists(newWorkspacePath)
+            AppLogger.d(TAG, "Workspace path updated to: $rootPath env=$workspaceEnv")
+        }
     }
 
-    fun isRunning(): Boolean {
-        return isServerRunning.get()
+    fun isRunning(): Boolean = synchronized(serverLock) { isServerRunning }
+
+    private object CloseOnExecServerSocketFactory : NanoHTTPD.ServerSocketFactory {
+        override fun create(): ServerSocket {
+            return CloseOnExecServerSocket()
+        }
+    }
+
+    private class CloseOnExecServerSocket : ServerSocket() {
+        private var listenerFd: FileDescriptor? = null
+        private var bound = false
+        private var closed = false
+        private var localAddress: InetSocketAddress? = null
+        private var reuseAddress = false
+        private var receiveTimeoutMs = 0
+
+        override fun bind(endpoint: SocketAddress?) {
+            bind(endpoint, 50)
+        }
+
+        override fun bind(endpoint: SocketAddress?, backlog: Int) {
+            if (closed) throw SocketException("Socket is closed")
+            if (bound) throw SocketException("Already bound")
+            val socketAddress = when (endpoint) {
+                null -> InetSocketAddress(0)
+                is InetSocketAddress -> endpoint
+                else -> throw IllegalArgumentException("Unsupported address type")
+            }
+            if (socketAddress.isUnresolved) throw SocketException("Unresolved address")
+            val descriptor = createSocket(socketAddress.address)
+            try {
+                setSocketIntOption(descriptor, OsConstants.SOL_SOCKET, OsConstants.SO_REUSEADDR, if (reuseAddress) 1 else 0)
+                setSocketReceiveTimeout(descriptor, receiveTimeoutMs)
+                Os.bind(descriptor, socketAddress.address, socketAddress.port)
+                Os.listen(descriptor, if (backlog < 1) 50 else backlog)
+                listenerFd = descriptor
+                localAddress = Os.getsockname(descriptor) as InetSocketAddress
+                bound = true
+            } catch (e: ErrnoException) {
+                try {
+                    Os.close(descriptor)
+                } catch (_: ErrnoException) {
+                }
+                throw SocketException(e.message)
+            }
+        }
+
+        override fun accept(): Socket {
+            if (closed) throw SocketException("Socket is closed")
+            if (!bound) throw SocketException("Socket is not bound yet")
+            val acceptedAddress = InetSocketAddress(0)
+            val descriptor = listenerFd ?: throw SocketException("Socket is closed")
+            val acceptedFd = try {
+                Os.accept(descriptor, acceptedAddress)
+            } catch (e: ErrnoException) {
+                throw SocketException(e.message)
+            }
+            return CloseOnExecSocket(acceptedFd, acceptedAddress)
+        }
+
+        override fun close() {
+            if (closed) return
+            closed = true
+            val descriptor = listenerFd ?: return
+            listenerFd = null
+            try {
+                Os.close(descriptor)
+            } catch (e: ErrnoException) {
+                throw SocketException(e.message)
+            }
+        }
+
+        override fun isBound(): Boolean = bound
+
+        override fun isClosed(): Boolean = closed
+
+        override fun getInetAddress(): InetAddress? = localAddress?.address
+
+        override fun getLocalPort(): Int = localAddress?.port ?: -1
+
+        override fun getLocalSocketAddress(): SocketAddress? = localAddress
+
+        override fun setReuseAddress(on: Boolean) {
+            reuseAddress = on
+            listenerFd?.let {
+                setSocketIntOption(it, OsConstants.SOL_SOCKET, OsConstants.SO_REUSEADDR, if (on) 1 else 0)
+            }
+        }
+
+        override fun getReuseAddress(): Boolean = reuseAddress
+
+        override fun setSoTimeout(timeout: Int) {
+            receiveTimeoutMs = timeout
+            listenerFd?.let { setSocketReceiveTimeout(it, timeout) }
+        }
+
+        override fun getSoTimeout(): Int = receiveTimeoutMs
+    }
+
+    private class CloseOnExecSocket(
+        private var socketFd: FileDescriptor?,
+        private val remoteAddress: InetSocketAddress
+    ) : Socket() {
+        private var closed = false
+
+        override fun isClosed(): Boolean {
+            return closed
+        }
+
+        override fun isConnected(): Boolean {
+            return !closed
+        }
+
+        override fun getInputStream(): InputStream {
+            val descriptor = requireDescriptor()
+            return object : InputStream() {
+                override fun read(): Int {
+                    val buffer = ByteArray(1)
+                    val count = read(buffer, 0, 1)
+                    return if (count == -1) -1 else buffer[0].toInt() and 0xff
+                }
+
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    if (length == 0) return 0
+                    return try {
+                        val count = Os.read(descriptor, buffer, offset, length)
+                        if (count == 0) -1 else count
+                    } catch (e: java.io.InterruptedIOException) {
+                        throw SocketTimeoutException(e.message)
+                    } catch (e: ErrnoException) {
+                        throw SocketException(e.message)
+                    }
+                }
+            }
+        }
+
+        override fun getOutputStream(): OutputStream {
+            val descriptor = requireDescriptor()
+            return object : OutputStream() {
+                override fun write(value: Int) {
+                    val buffer = byteArrayOf(value.toByte())
+                    write(buffer, 0, 1)
+                }
+
+                override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                    var written = 0
+                    while (written < length) {
+                        val count = try {
+                            Os.write(descriptor, buffer, offset + written, length - written)
+                        } catch (e: java.io.InterruptedIOException) {
+                            throw SocketTimeoutException(e.message)
+                        } catch (e: ErrnoException) {
+                            throw SocketException(e.message)
+                        }
+                        written += count
+                    }
+                }
+            }
+        }
+
+        override fun close() {
+            if (closed) return
+            closed = true
+            val descriptor = socketFd ?: return
+            socketFd = null
+            try {
+                Os.close(descriptor)
+            } catch (e: ErrnoException) {
+                throw SocketException(e.message)
+            }
+        }
+
+        override fun shutdownInput() {
+            shutdown(OsConstants.SHUT_RD)
+        }
+
+        override fun shutdownOutput() {
+            shutdown(OsConstants.SHUT_WR)
+        }
+
+        override fun setSoTimeout(timeout: Int) {
+            setSocketReceiveTimeout(requireDescriptor(), timeout)
+        }
+
+        override fun getInetAddress(): InetAddress = remoteAddress.address
+
+        override fun getPort(): Int = remoteAddress.port
+
+        override fun getRemoteSocketAddress(): SocketAddress = remoteAddress
+
+        override fun getLocalSocketAddress(): SocketAddress? {
+            val descriptor = requireDescriptor()
+            return try {
+                Os.getsockname(descriptor)
+            } catch (e: ErrnoException) {
+                throw SocketException(e.message)
+            }
+        }
+
+        private fun requireDescriptor(): FileDescriptor {
+            return socketFd ?: throw SocketException("Socket is closed")
+        }
+
+        @Throws(IOException::class)
+        private fun shutdown(how: Int) {
+            try {
+                Os.shutdown(requireDescriptor(), how)
+            } catch (e: ErrnoException) {
+                throw SocketException(e.message)
+            }
+        }
     }
 
     override fun serve(session: IHTTPSession): Response {
