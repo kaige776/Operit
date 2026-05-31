@@ -71,7 +71,8 @@ import com.ai.assistance.operit.ui.features.startup.screens.LocalPluginLoadingSt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MCPConfigScreen(
-    onNavigateToMCPMarket: () -> Unit = {}
+    onNavigateToMCPMarket: () -> Unit = {},
+    searchQuery: String = ""
 ) {
     val context = LocalContext.current
     val activity = context as? androidx.activity.ComponentActivity
@@ -304,6 +305,28 @@ fun MCPConfigScreen(
         } else {
             kept + missing.sortedBy { pluginId ->
                 getPluginDisplayName(pluginId, mcpRepository).lowercase(Locale.getDefault())
+            }
+        }
+    }
+
+    val displayedPluginIds = remember(
+        sortedPluginIds,
+        searchQuery,
+        mcpConfigSnapshot,
+        pluginToolsMap
+    ) {
+        val searchText = searchQuery.trim()
+        if (searchText.isEmpty()) {
+            sortedPluginIds
+        } else {
+            sortedPluginIds.filter { pluginId ->
+                mcpPluginMatchesSearch(
+                    pluginId = pluginId,
+                    displayName = getPluginDisplayName(pluginId, mcpRepository),
+                    metadata = mcpConfigSnapshot.pluginMetadata[pluginId],
+                    toolNames = pluginToolsMap[pluginId],
+                    searchText = searchText
+                )
             }
         }
     }
@@ -1187,10 +1210,10 @@ fun MCPConfigScreen(
 
                     
                     // 插件列表标题
-                    if (sortedPluginIds.isNotEmpty()) {
+                    if (displayedPluginIds.isNotEmpty()) {
                         
                         // 插件列表
-                        items(items = sortedPluginIds, key = { it }) { pluginId ->
+                        items(items = displayedPluginIds, key = { it }) { pluginId ->
                             val pluginInfo = remember(pluginId) {
                                 mcpRepository.getInstalledPluginInfo(pluginId)
                             }
@@ -1316,7 +1339,13 @@ fun MCPConfigScreen(
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Text(
-                                            stringResource(R.string.no_plugins),
+                                            stringResource(
+                                                if (searchQuery.isBlank()) {
+                                                    R.string.no_plugins
+                                                } else {
+                                                    R.string.no_matching_plugins_found
+                                                }
+                                            ),
                                             style = MaterialTheme.typography.titleMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -1352,6 +1381,34 @@ private fun getPluginDisplayName(pluginId: String, mcpRepository: MCPRepository)
             pluginId.removePrefix("official_").replace("_", " ").replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
         else -> pluginId
     }
+}
+
+private fun mcpPluginMatchesSearch(
+    pluginId: String,
+    displayName: String,
+    metadata: MCPLocalServer.PluginMetadata?,
+    toolNames: List<String>?,
+    searchText: String
+): Boolean {
+    val searchableText =
+        buildList {
+            add(pluginId)
+            add(displayName)
+            metadata?.let { pluginMetadata ->
+                add(pluginMetadata.id)
+                add(pluginMetadata.name)
+                add(pluginMetadata.description)
+                add(pluginMetadata.author)
+                add(pluginMetadata.version)
+                add(pluginMetadata.longDescription)
+                add(pluginMetadata.repoUrl)
+                add(pluginMetadata.type)
+                pluginMetadata.endpoint?.let { add(it) }
+            }
+            toolNames?.forEach { toolName -> add(toolName) }
+        }
+
+    return searchableText.any { text -> text.contains(searchText, ignoreCase = true) }
 }
 
 // 获取插件元数据

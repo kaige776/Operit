@@ -2,6 +2,7 @@ package com.ai.assistance.operit.ui.features.packages.market
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -10,6 +11,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -31,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.ui.main.LocalTopBarActions
 import com.ai.assistance.operit.ui.main.LocalTopBarTitleContent
@@ -43,7 +46,8 @@ fun BindMarketSearchToTopBar(
     enabled: Boolean,
     searchQuery: String,
     onSearchQueryChanged: (String) -> Unit,
-    @StringRes searchPlaceholderRes: Int
+    @StringRes searchPlaceholderRes: Int,
+    isSearching: Boolean = false
 ) {
     val setTopBarActions = LocalTopBarActions.current
     val setTopBarTitleContent = LocalTopBarTitleContent.current
@@ -51,6 +55,7 @@ fun BindMarketSearchToTopBar(
     val appBarContentColor = LocalAppBarContentColor.current
     val latestSearchQuery = rememberUpdatedState(searchQuery)
     val latestSearchPlaceholderRes = rememberUpdatedState(searchPlaceholderRes)
+    val latestIsSearching = rememberUpdatedState(isSearching)
     val latestAppBarContentColor = rememberUpdatedState(appBarContentColor)
     val latestOnSearchQueryChanged = rememberUpdatedState(onSearchQueryChanged)
     var isSearchExpanded by rememberSaveable { mutableStateOf(false) }
@@ -72,7 +77,10 @@ fun BindMarketSearchToTopBar(
     LaunchedEffect(
         isCurrentScreen,
         enabled,
-        isSearchActive
+        isSearchActive,
+        searchQuery,
+        searchPlaceholderRes,
+        isSearching
     ) {
         if (!isCurrentScreen) {
             return@LaunchedEffect
@@ -104,7 +112,8 @@ fun BindMarketSearchToTopBar(
                         onSearchQueryChanged = latestOnSearchQueryChanged.value,
                         onCloseSearch = { closeSearch(clearQuery = true) },
                         searchPlaceholderRes = latestSearchPlaceholderRes.value,
-                        contentColor = latestAppBarContentColor.value
+                        contentColor = latestAppBarContentColor.value,
+                        isSearching = latestIsSearching.value
                     )
                 }
             } else {
@@ -120,7 +129,8 @@ private fun MarketTopBarSearchField(
     onSearchQueryChanged: (String) -> Unit,
     onCloseSearch: () -> Unit,
     @StringRes searchPlaceholderRes: Int,
-    contentColor: Color
+    contentColor: Color,
+    isSearching: Boolean
 ) {
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -174,11 +184,19 @@ private fun MarketTopBarSearchField(
             )
         },
         trailingIcon = {
-            IconButton(onClick = onCloseSearch) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(R.string.cancel)
+            if (isSearching) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = contentColor.copy(alpha = 0.9f)
                 )
+            } else {
+                IconButton(onClick = onCloseSearch) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.cancel)
+                    )
+                }
             }
         },
         singleLine = true,

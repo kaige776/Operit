@@ -1,5 +1,6 @@
 package com.ai.assistance.operit.ui.main.layout
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -10,7 +11,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -62,14 +67,30 @@ fun TabletLayout(
         topBarTitleContent: TopBarTitleContent? = null
 ) {
         val drawerAppearance = rememberNavigationDrawerAppearance()
+        val sidebarWidthAnimationDurationMillis = 280
+        val sidebarContentFadeDurationMillis = 160
+        var isSidebarWidthExpanded by remember { mutableStateOf(isTabletSidebarExpanded) }
+        var isSidebarContentExpanded by remember { mutableStateOf(isTabletSidebarExpanded) }
+
+        LaunchedEffect(isTabletSidebarExpanded) {
+                if (isTabletSidebarExpanded) {
+                        isSidebarWidthExpanded = true
+                        kotlinx.coroutines.delay(sidebarWidthAnimationDurationMillis.toLong())
+                        isSidebarContentExpanded = true
+                } else {
+                        isSidebarContentExpanded = false
+                        kotlinx.coroutines.delay(sidebarContentFadeDurationMillis.toLong())
+                        isSidebarWidthExpanded = false
+                }
+        }
 
         // 计算侧边栏的动画宽度，轻微调整动画时间为280ms，保持原有效果但稍快
         val animatedSidebarWidth by
                 animateDpAsState(
                         targetValue =
-                                if (isTabletSidebarExpanded) tabletSidebarWidth
+                                if (isSidebarWidthExpanded) tabletSidebarWidth
                                 else collapsedTabletSidebarWidth,
-                        animationSpec = tween(durationMillis = 280),
+                        animationSpec = tween(durationMillis = sidebarWidthAnimationDurationMillis),
                         label = "sidebarWidth"
                 )
 
@@ -79,7 +100,7 @@ fun TabletLayout(
                 val contentWidth by
                         animateDpAsState(
                                 targetValue =
-                                        if (isTabletSidebarExpanded)
+                                        if (isSidebarWidthExpanded)
                                                 androidx.compose.ui.platform.LocalConfiguration
                                                         .current
                                                         .screenWidthDp
@@ -89,7 +110,7 @@ fun TabletLayout(
                                                         .current
                                                         .screenWidthDp
                                                         .dp - collapsedTabletSidebarWidth + 1.dp, // 增加1dp解决右侧白线问题
-                                animationSpec = tween(durationMillis = 280),
+                                animationSpec = tween(durationMillis = sidebarWidthAnimationDurationMillis),
                                 label = "contentWidth"
                         )
 
@@ -112,32 +133,37 @@ fun TabletLayout(
                                 if (drawerAppearance.waterGlassEnabled) Color.Transparent
                                 else drawerAppearance.containerColor
                 ) {
-                        // 根据展开状态显示不同内容，保持原有逻辑稳定性
-                        if (isTabletSidebarExpanded) {
-                                DrawerContent(
-                                        navItems = navItems,
-                                        pluginEntries = pluginSidebarEntries,
-                                        selectedItem = selectedItem,
-                                        selectedRouteId = selectedRouteId,
-                                        isNetworkAvailable = isNetworkAvailable,
-                                        networkType = networkType,
-                                        appearance = drawerAppearance,
-                                        scope = scope,
-                                        drawerState = drawerState,
-                                        onScreenSelected = onDrawerItemSelected,
-                                        onNavigationEntrySelected = onNavigationEntrySelected
-                                )
-                        } else {
-                                CollapsedDrawerContent(
-                                        navItems = navItems,
-                                        pluginEntries = pluginSidebarEntries,
-                                        selectedItem = selectedItem,
-                                        selectedRouteId = selectedRouteId,
-                                        isNetworkAvailable = isNetworkAvailable,
-                                        appearance = drawerAppearance,
-                                        onScreenSelected = onDrawerItemSelected,
-                                        onNavigationEntrySelected = onNavigationEntrySelected
-                                )
+                        Crossfade(
+                                targetState = isSidebarContentExpanded,
+                                animationSpec = tween(durationMillis = sidebarContentFadeDurationMillis),
+                                label = "sidebarContent"
+                        ) { isContentExpanded ->
+                                if (isContentExpanded) {
+                                        DrawerContent(
+                                                navItems = navItems,
+                                                pluginEntries = pluginSidebarEntries,
+                                                selectedItem = selectedItem,
+                                                selectedRouteId = selectedRouteId,
+                                                isNetworkAvailable = isNetworkAvailable,
+                                                networkType = networkType,
+                                                appearance = drawerAppearance,
+                                                scope = scope,
+                                                drawerState = drawerState,
+                                                onScreenSelected = onDrawerItemSelected,
+                                                onNavigationEntrySelected = onNavigationEntrySelected
+                                        )
+                                } else {
+                                        CollapsedDrawerContent(
+                                                navItems = navItems,
+                                                pluginEntries = pluginSidebarEntries,
+                                                selectedItem = selectedItem,
+                                                selectedRouteId = selectedRouteId,
+                                                isNetworkAvailable = isNetworkAvailable,
+                                                appearance = drawerAppearance,
+                                                onScreenSelected = onDrawerItemSelected,
+                                                onNavigationEntrySelected = onNavigationEntrySelected
+                                        )
+                                }
                         }
                 }
 

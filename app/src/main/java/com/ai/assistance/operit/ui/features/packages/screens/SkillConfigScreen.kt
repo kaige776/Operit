@@ -84,7 +84,8 @@ import kotlinx.coroutines.withContext
 fun SkillConfigScreen(
     skillRepository: SkillRepository,
     snackbarHostState: SnackbarHostState,
-    onNavigateToSkillMarket: () -> Unit = {}
+    onNavigateToSkillMarket: () -> Unit = {},
+    searchQuery: String = ""
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -214,6 +215,19 @@ fun SkillConfigScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            val displayedSkills =
+                remember(skills, searchQuery) {
+                    val searchText = searchQuery.trim()
+                    skills.values
+                        .filter { skill ->
+                            searchText.isEmpty() ||
+                                skill.name.contains(searchText, ignoreCase = true) ||
+                                skill.description.contains(searchText, ignoreCase = true) ||
+                                skill.directory.absolutePath.contains(searchText, ignoreCase = true)
+                        }
+                        .sortedBy { it.name }
+                }
+
             if (skills.isEmpty()) {
                 Text(
                     text = stringResource(R.string.skillmgr_no_skills_found, skillRepository.getSkillsDirectoryPath()),
@@ -226,8 +240,17 @@ fun SkillConfigScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 120.dp)
                 ) {
-                    val sortedSkills = skills.values.sortedBy { it.name }
-                    items(sortedSkills, key = { it.name }) { skill ->
+                    if (displayedSkills.isEmpty()) {
+                        item(key = "empty_skill_search_state") {
+                            Text(
+                                text = stringResource(R.string.no_matching_skills_found),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    items(displayedSkills, key = { it.name }) { skill ->
                         SkillListItem(
                             skill = skill,
                             skillVisibilityPreferences = skillVisibilityPreferences,

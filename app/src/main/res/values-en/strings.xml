@@ -710,7 +710,6 @@
 
     <!-- Context Menu -->
     <string name="copy_message">Copy Message</string>
-    <string name="copy_full_message">Copy All</string>
     <string name="chat_hidden_user_message_placeholder">Auto-triggered user message (content hidden)</string>
     <string name="chat_hidden_user_message_badge">AUTO</string>
     <string name="info">Info</string>
@@ -733,7 +732,7 @@
     <string name="edit_and_resend">Edit &amp; Resend</string>
     <string name="rollback_to_here">Rollback to Here</string>
     <string name="reply_message">Reply</string>
-    <string name="select_copy">Select Copy</string>
+    <string name="select_copy">Select &amp; Copy</string>
     <string name="insert_summary">Insert Summary</string>
     <string name="create_branch">Create Branch</string>
     <string name="branch">Branch</string>

@@ -20,7 +20,9 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -1582,25 +1584,28 @@ internal fun renderWebViewNode(
     }
 
     var pendingFileChooserCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
-    val fileChooserLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val callback = pendingFileChooserCallback
-            pendingFileChooserCallback = null
-            if (callback == null) {
-                return@rememberLauncherForActivityResult
-            }
-            val uris =
-                WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
-                    ?: run {
-                        val intent = result.data
-                        val directData = intent?.data?.let { arrayOf(it) }
-                        val clipData =
-                            intent?.clipData?.let { clip ->
-                                Array(clip.itemCount) { index -> clip.getItemAt(index).uri }
-                            }
-                        directData ?: clipData
+    val activityResultRegistryOwner = LocalActivityResultRegistryOwner.current
+    val fileChooserLauncher: ActivityResultLauncher<Intent>? =
+        if (activityResultRegistryOwner != null) {
+            rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                val callback = pendingFileChooserCallback
+                pendingFileChooserCallback = null
+                if (callback == null) {
+                    return@rememberLauncherForActivityResult
+                }
+                val parsedUris =
+                    WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+                val intent = result.data
+                val directData = intent?.data?.let { arrayOf(it) }
+                val clipData =
+                    intent?.clipData?.let { clip ->
+                        Array(clip.itemCount) { index -> clip.getItemAt(index).uri }
                     }
-            callback.onReceiveValue(uris)
+                val uris = parsedUris ?: directData ?: clipData
+                callback.onReceiveValue(uris)
+            }
+        } else {
+            null
         }
     val pageBridge =
         remember(webViewScopeKey) {
@@ -2068,6 +2073,11 @@ internal fun renderWebViewNode(
                         if (filePathCallback == null) {
                             return false
                         }
+                        val launcher = fileChooserLauncher
+                        if (launcher == null) {
+                            filePathCallback.onReceiveValue(null)
+                            return false
+                        }
                         pendingFileChooserCallback?.onReceiveValue(null)
                         pendingFileChooserCallback = filePathCallback
                         return try {
@@ -2080,9 +2090,10 @@ internal fun renderWebViewNode(
                             if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
                                 intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                             }
-                            fileChooserLauncher.launch(intent)
+                            launcher.launch(intent)
                             true
-                        } catch (_: Throwable) {
+                        } catch (error: Throwable) {
+                            AppLogger.e(TAG, "compose_dsl webview failed to open file chooser", error)
                             pendingFileChooserCallback?.onReceiveValue(null)
                             pendingFileChooserCallback = null
                             false

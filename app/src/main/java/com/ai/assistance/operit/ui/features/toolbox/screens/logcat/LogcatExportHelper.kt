@@ -6,8 +6,10 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.ai.assistance.operit.R
+import com.ai.assistance.operit.util.AppLogger
 import java.io.File
 import java.io.FileWriter
+import java.io.Writer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -23,8 +25,16 @@ object LogcatExportHelper {
 
     suspend fun exportLogs(context: Context): LogcatExportResult = withContext(Dispatchers.IO) {
         try {
-            val logsToSave = LogcatManager(context).loadInitialLogs()
-            if (logsToSave.isEmpty()) {
+            val logFile = AppLogger.getLogFile()
+            if (logFile == null || !logFile.exists() || logFile.length() == 0L) {
+                return@withContext LogcatExportResult(
+                    message = context.getString(R.string.logcat_no_logs_to_save),
+                    success = false
+                )
+            }
+
+            val logLineCount = countExportableLogLines(logFile)
+            if (logLineCount == 0L) {
                 return@withContext LogcatExportResult(
                     message = context.getString(R.string.logcat_no_logs_to_save),
                     success = false
@@ -33,11 +43,10 @@ object LogcatExportHelper {
 
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
             val fileName = "operit_log_$timestamp.txt"
-            val content = buildLogContent(context, logsToSave)
             val filePath = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                saveUsingMediaStore(context, fileName, content)
+                saveUsingMediaStore(context, fileName, logFile, logLineCount)
             } else {
-                saveUsingFileSystem(context, fileName, content)
+                saveUsingFileSystem(context, fileName, logFile, logLineCount)
             }
 
             LogcatExportResult(
@@ -55,27 +64,47 @@ object LogcatExportHelper {
         }
     }
 
-    private fun buildLogContent(context: Context, logsToSave: List<LogRecord>): String {
-        val exportTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-        return buildString {
-            appendLine(context.getString(R.string.logcat_header))
-            appendLine(context.getString(R.string.logcat_date, exportTime))
-            appendLine(context.getString(R.string.logcat_total_count, logsToSave.size))
-            appendLine("===================================")
-            appendLine()
+    private fun countExportableLogLines(logFile: File): Long {
+        var count = 0L
+        logFile.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                if (line.isNotBlank()) {
+                    count++
+                }
+            }
+        }
+        return count
+    }
 
-            logsToSave.forEach { record ->
-                val recordTimestamp =
-                    SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
-                        .format(Date(record.timestamp))
-                val tag = record.tag ?: ""
-                appendLine("$recordTimestamp ${record.level.symbol}/$tag: ${record.message}")
+    private fun writeLogContent(
+        context: Context,
+        writer: Writer,
+        logFile: File,
+        logLineCount: Long
+    ) {
+        val exportTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+        writer.appendLine(context.getString(R.string.logcat_header))
+        writer.appendLine(context.getString(R.string.logcat_date, exportTime))
+        writer.appendLine(context.getString(R.string.logcat_total_count, logLineCount))
+        writer.appendLine("===================================")
+        writer.appendLine()
+
+        logFile.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                if (line.isNotBlank()) {
+                    writer.appendLine(line)
+                }
             }
         }
     }
 
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
-    private fun saveUsingMediaStore(context: Context, fileName: String, content: String): String {
+    private fun saveUsingMediaStore(
+        context: Context,
+        fileName: String,
+        logFile: File,
+        logLineCount: Long
+    ): String {
         try {
             val contentValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
@@ -88,7 +117,9 @@ object LogcatExportHelper {
             ) ?: throw Exception(context.getString(R.string.logcat_cannot_create_file))
 
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                outputStream.write(content.toByteArray())
+                outputStream.bufferedWriter().use { writer ->
+                    writeLogContent(context, writer, logFile, logLineCount)
+                }
             } ?: throw Exception(context.getString(R.string.logcat_cannot_open_output_stream))
 
             val downloadsDir =
@@ -99,7 +130,12 @@ object LogcatExportHelper {
         }
     }
 
-    private fun saveUsingFileSystem(context: Context, fileName: String, content: String): String {
+    private fun saveUsingFileSystem(
+        context: Context,
+        fileName: String,
+        logFile: File,
+        logLineCount: Long
+    ): String {
         try {
             val downloadsDir =
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -111,7 +147,9 @@ object LogcatExportHelper {
                 throw Exception(context.getString(R.string.logcat_cannot_create_operit_dir))
             }
             val file = File(operitDir, fileName)
-            FileWriter(file).use { it.write(content) }
+            FileWriter(file).use { writer ->
+                writeLogContent(context, writer, logFile, logLineCount)
+            }
             if (!file.exists() || file.length() == 0L) {
                 throw Exception(context.getString(R.string.logcat_file_create_failed))
             }

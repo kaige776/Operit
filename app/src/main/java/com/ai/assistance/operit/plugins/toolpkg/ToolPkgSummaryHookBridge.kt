@@ -22,8 +22,8 @@ internal object ToolPkgSummaryHookBridge {
     @Volatile
     private var summaryGenerateHooks: List<ToolPkgPromptHookRegistration> = emptyList()
     private val runtimeChangeListener =
-        PackageManager.ToolPkgRuntimeChangeListener {
-            syncToolPkgRegistrations(toolPkgPackageManager().getEnabledToolPkgContainerRuntimes())
+        PackageManager.ToolPkgRuntimeChangeListener { activeContainers ->
+            syncToolPkgRegistrations(activeContainers)
         }
 
     private object SummaryGenerateBridge : SummaryGenerateHook {

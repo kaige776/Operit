@@ -367,7 +367,6 @@ fun StreamMarkdownRenderer(
         state: StreamMarkdownRendererState? = null,
         enableDialogs: Boolean = true,
         fillMaxWidth: Boolean = true,
-        textSelectionRequest: MarkdownTextSelectionRequest? = null,
 ) {
     // 使用传入的state或创建新的state
     val rendererState = state ?: remember { StreamMarkdownRendererState() }
@@ -609,7 +608,6 @@ fun StreamMarkdownRenderer(
                     enableDialogs = enableDialogs,
                     modifier = if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier,
                     fillMaxWidth = fillMaxWidth,
-                    textSelectionRequest = textSelectionRequest,
                 )
             }
         }
@@ -679,7 +677,6 @@ fun StreamMarkdownRenderer(
         state: StreamMarkdownRendererState? = null,
         enableDialogs: Boolean = true,
         fillMaxWidth: Boolean = true,
-        textSelectionRequest: MarkdownTextSelectionRequest? = null,
 ) {
     // 使用传入的state或创建新的state
     val rendererState = state ?: remember(content) { StreamMarkdownRendererState() }
@@ -921,7 +918,6 @@ fun StreamMarkdownRenderer(
                     enableDialogs = enableDialogs,
                     modifier = if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier,
                     fillMaxWidth = fillMaxWidth,
-                    textSelectionRequest = textSelectionRequest,
                 )
             }
         }
@@ -959,8 +955,6 @@ private fun AnimatedNode(
     xmlStream: Stream<String>?,
     enableDialogs: Boolean,
     fillMaxWidth: Boolean,
-    textSelectionRequest: MarkdownTextSelectionRequest?,
-    selectionState: MarkdownCanvasTextSelectionState?,
     isLastNode: Boolean = false
 ) {
     // alpha 动画状态在这里，变化只影响这个 Composable 的作用域
@@ -987,8 +981,6 @@ private fun AnimatedNode(
             xmlStream = xmlStream,
             enableDialogs = enableDialogs,
             fillMaxWidth = fillMaxWidth,
-            textSelectionRequest = textSelectionRequest,
-            selectionState = selectionState,
             isLastNode = isLastNode
         )
     }
@@ -1008,7 +1000,6 @@ private fun UnifiedMarkdownCanvas(
     enableDialogs: Boolean,
     modifier: Modifier = Modifier,
     fillMaxWidth: Boolean = true,
-    textSelectionRequest: MarkdownTextSelectionRequest? = null,
 ) {
     val lastRenderableIndex = run {
         val idx = nodes.indexOfLast { it.content.isNotEmpty() || it.children.isNotEmpty() }
@@ -1032,15 +1023,6 @@ private fun UnifiedMarkdownCanvas(
         remember(groupingKey, rendererId, nodeGrouper) {
             nodeGrouper.group(nodes, rendererId)
         }
-    val textSelectionState = remember(rendererId) { MarkdownCanvasTextSelectionState() }
-    LaunchedEffect(nodes.size, groupedItems) {
-        val singleNodeIndices =
-            groupedItems.mapNotNull { item ->
-                (item as? MarkdownGroupedItem.Single)?.index
-            }.toSet()
-        textSelectionState.retainNodeIndices(singleNodeIndices)
-    }
-
     Column(modifier = modifier) {
         groupedItems.forEach { item ->
             when (item) {
@@ -1061,8 +1043,6 @@ private fun UnifiedMarkdownCanvas(
                             xmlStream = xmlStreamsByIndex[index],
                             enableDialogs = enableDialogs,
                             fillMaxWidth = fillMaxWidth,
-                            textSelectionRequest = textSelectionRequest,
-                            selectionState = textSelectionState,
                             isLastNode = index == lastRenderableIndex,
                         )
                     }

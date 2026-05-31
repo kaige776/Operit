@@ -15,6 +15,7 @@ LANG_DIR_RE = re.compile(r"^values-([a-z]{2,3})(?:-r([A-Z0-9]{2,3}))?$")
 LANG_LABELS = {
     "zh": "中文",
     "en": "英文",
+    "ko": "韩语",
     "es": "西班牙语",
     "pt-BR": "葡萄牙语(巴西)",
     "ms": "马来语",

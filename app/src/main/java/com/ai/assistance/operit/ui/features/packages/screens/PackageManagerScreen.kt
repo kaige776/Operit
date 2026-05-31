@@ -65,6 +65,7 @@ import com.ai.assistance.operit.ui.features.packages.lists.PackagesList
 import com.ai.assistance.operit.ui.features.packages.market.BindMarketSearchToTopBar
 import com.ai.assistance.operit.ui.features.packages.market.PluginCreationIntent
 import java.io.File
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,6 +74,7 @@ private data class ExternalPackageImportResult(
     val message: String,
     val availablePackages: Map<String, ToolPackage>,
     val allAvailablePackages: Map<String, ToolPackage>,
+    val pluginContainers: Map<String, PackageManager.ToolPkgContainerDetails>,
     val importedPackages: List<String>,
     val packageLoadErrors: Map<String, String>,
     val packageLoadErrorInfos: List<PackageManager.PackageLoadErrorInfo>,
@@ -82,6 +84,7 @@ private data class ExternalPackageImportResult(
 private data class PackageManagerSnapshot(
     val availablePackages: Map<String, ToolPackage>,
     val allAvailablePackages: Map<String, ToolPackage>,
+    val pluginContainers: Map<String, PackageManager.ToolPkgContainerDetails>,
     val importedPackages: List<String>,
     val packageLoadErrors: Map<String, String>,
     val packageLoadErrorInfos: List<PackageManager.PackageLoadErrorInfo>
@@ -140,6 +143,8 @@ fun PackageManagerScreen(
     // State for available and imported packages
     val availablePackages = remember { mutableStateOf<Map<String, ToolPackage>>(emptyMap()) }
     val allAvailablePackages = remember { mutableStateOf<Map<String, ToolPackage>>(emptyMap()) }
+    val pluginContainers =
+        remember { mutableStateOf<Map<String, PackageManager.ToolPkgContainerDetails>>(emptyMap()) }
     val importedPackages = remember { mutableStateOf<List<String>>(emptyList()) }
     // UI展示用的导入状态列表，与后端状态分离
     val visibleImportedPackages = remember { mutableStateOf<List<String>>(emptyList()) }
@@ -159,8 +164,21 @@ fun PackageManagerScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Tab selection state
-    var selectedTab by rememberSaveable { mutableStateOf(PackageTab.PACKAGES) }
+    var selectedTab by rememberSaveable { mutableStateOf(PackageTab.PLUGINS) }
+    var pluginSearchInput by rememberSaveable { mutableStateOf("") }
+    var pluginSearchQuery by rememberSaveable { mutableStateOf("") }
+    var filteredPluginContainers by remember {
+        mutableStateOf<Map<String, PackageManager.ToolPkgContainerDetails>>(emptyMap())
+    }
+    var isPluginSearchFiltering by remember { mutableStateOf(false) }
+    var packageSearchInput by rememberSaveable { mutableStateOf("") }
     var packageSearchQuery by rememberSaveable { mutableStateOf("") }
+    var filteredAvailablePackages by remember { mutableStateOf<Map<String, ToolPackage>>(emptyMap()) }
+    var isPackageSearchFiltering by remember { mutableStateOf(false) }
+    var skillSearchInput by rememberSaveable { mutableStateOf("") }
+    var skillSearchQuery by rememberSaveable { mutableStateOf("") }
+    var mcpSearchInput by rememberSaveable { mutableStateOf("") }
+    var mcpSearchQuery by rememberSaveable { mutableStateOf("") }
 
     // Environment variables dialog state
     var showEnvDialog by remember { mutableStateOf(false) }
@@ -204,14 +222,61 @@ fun PackageManagerScreen(
         }
     }
 
-    val filteredAvailablePackages by remember {
-        derivedStateOf {
-            val searchText = packageSearchQuery.trim()
-            val packagesMap = availablePackages.value
+    LaunchedEffect(pluginSearchInput) {
+        delay(320)
+        pluginSearchQuery = pluginSearchInput.trim()
+    }
 
-            if (searchText.isEmpty()) {
-                packagesMap
-            } else {
+    LaunchedEffect(packageSearchInput) {
+        delay(320)
+        packageSearchQuery = packageSearchInput.trim()
+    }
+
+    LaunchedEffect(skillSearchInput) {
+        delay(320)
+        skillSearchQuery = skillSearchInput.trim()
+    }
+
+    LaunchedEffect(mcpSearchInput) {
+        delay(320)
+        mcpSearchQuery = mcpSearchInput.trim()
+    }
+
+    LaunchedEffect(pluginContainers.value, pluginSearchQuery) {
+        val pluginsMap = pluginContainers.value
+        val searchText = pluginSearchQuery.trim()
+        if (searchText.isEmpty()) {
+            filteredPluginContainers = pluginsMap
+            isPluginSearchFiltering = false
+            return@LaunchedEffect
+        }
+
+        isPluginSearchFiltering = true
+        filteredPluginContainers =
+            withContext(Dispatchers.Default) {
+                pluginsMap.filter { (packageName, details) ->
+                    pluginMatchesSearch(
+                        packageName = packageName,
+                        details = details,
+                        searchText = searchText
+                    )
+                }
+            }
+        isPluginSearchFiltering = false
+    }
+
+    LaunchedEffect(availablePackages.value, packageSearchQuery) {
+        val packagesMap = availablePackages.value
+        val searchText = packageSearchQuery.trim()
+        if (searchText.isEmpty()) {
+            filteredAvailablePackages = packagesMap
+            isPackageSearchFiltering = false
+            return@LaunchedEffect
+        }
+
+        isPackageSearchFiltering = true
+        filteredAvailablePackages =
+            withContext(Dispatchers.Default) {
                 packagesMap.filter { (packageName, toolPackage) ->
                     packageMatchesSearch(
                         context = context,
@@ -221,7 +286,7 @@ fun PackageManagerScreen(
                     )
                 }
             }
-        }
+        isPackageSearchFiltering = false
     }
 
     // File picker launcher for importing external packages
@@ -249,14 +314,31 @@ fun PackageManagerScreen(
 
                         // 根据当前选中的标签页处理不同类型的文件
                         when (selectedTab) {
+                            PackageTab.PLUGINS,
                             PackageTab.PACKAGES -> {
                                 val fileNameNonNull = fileName ?: return@launch
                                 val lowerFileName = fileNameNonNull.lowercase()
                                 val supported =
-                                    lowerFileName.endsWith(".js") ||
-                                        lowerFileName.endsWith(".toolpkg")
+                                    when (selectedTab) {
+                                        PackageTab.PLUGINS ->
+                                            lowerFileName.endsWith(".toolpkg")
+                                        PackageTab.PACKAGES ->
+                                            lowerFileName.endsWith(".js") ||
+                                                lowerFileName.endsWith(".ts") ||
+                                                lowerFileName.endsWith(".hjson")
+                                        else -> false
+                                    }
                                 if (!supported) {
-                                    snackbarHostState.showSnackbar(message = context.getString(R.string.package_js_only))
+                                    snackbarHostState.showSnackbar(
+                                        message =
+                                            context.getString(
+                                                if (selectedTab == PackageTab.PLUGINS) {
+                                                    R.string.plugin_toolpkg_only
+                                                } else {
+                                                    R.string.package_script_only
+                                                }
+                                            )
+                                    )
                                     return@launch
                                 }
 
@@ -273,8 +355,12 @@ fun PackageManagerScreen(
                                             val errorsBeforeImport = packageManager.getPackageLoadErrors()
                                             val importMessage = packageManager.addPackageFileFromExternalStorage(tempFile.absolutePath)
 
-                                            val available = packageManager.getTopLevelAvailablePackages(forceRefresh = true)
+                                            val available = packageManager.getExecutableAvailablePackages(forceRefresh = true)
                                             val allAvailable = packageManager.getAvailablePackages()
+                                            val plugins =
+                                                packageManager
+                                                    .getToolPkgPluginContainerDetails(context)
+                                                    .associateBy { it.packageName }
                                             val imported = packageManager.getEnabledPackageNames()
                                             val errors = packageManager.getPackageLoadErrors()
                                             val errorInfos = packageManager.getPackageLoadErrorInfos()
@@ -285,6 +371,7 @@ fun PackageManagerScreen(
                                                 message = importMessage,
                                                 availablePackages = available,
                                                 allAvailablePackages = allAvailable,
+                                                pluginContainers = plugins,
                                                 importedPackages = imported,
                                                 packageLoadErrors = errors,
                                                 packageLoadErrorInfos = errorInfos,
@@ -299,6 +386,7 @@ fun PackageManagerScreen(
 
                                 availablePackages.value = loadResult.availablePackages
                                 allAvailablePackages.value = loadResult.allAvailablePackages
+                                pluginContainers.value = loadResult.pluginContainers
                                 importedPackages.value = loadResult.importedPackages
                                 packageLoadErrors.value = loadResult.packageLoadErrors
                                 packageLoadErrorInfos.value = loadResult.packageLoadErrorInfos
@@ -355,14 +443,19 @@ fun PackageManagerScreen(
         try {
             val loadResult =
                 withContext(Dispatchers.IO) {
-                    val available = packageManager.getTopLevelAvailablePackages(forceRefresh = true)
+                    val available = packageManager.getExecutableAvailablePackages(forceRefresh = true)
                     val allAvailable = packageManager.getAvailablePackages()
+                    val plugins =
+                        packageManager
+                            .getToolPkgPluginContainerDetails(context)
+                            .associateBy { it.packageName }
                     val imported = packageManager.getEnabledPackageNames()
                     val errors = packageManager.getPackageLoadErrors()
                     val errorInfos = packageManager.getPackageLoadErrorInfos()
                     PackageManagerSnapshot(
                         availablePackages = available,
                         allAvailablePackages = allAvailable,
+                        pluginContainers = plugins,
                         importedPackages = imported,
                         packageLoadErrors = errors,
                         packageLoadErrorInfos = errorInfos
@@ -371,6 +464,7 @@ fun PackageManagerScreen(
 
             availablePackages.value = loadResult.availablePackages
             allAvailablePackages.value = loadResult.allAvailablePackages
+            pluginContainers.value = loadResult.pluginContainers
             importedPackages.value = loadResult.importedPackages
             packageLoadErrors.value = loadResult.packageLoadErrors
             packageLoadErrorInfos.value = loadResult.packageLoadErrorInfos
@@ -383,11 +477,43 @@ fun PackageManagerScreen(
         }
     }
 
+    val activeSearchInput =
+        when (selectedTab) {
+            PackageTab.PLUGINS -> pluginSearchInput
+            PackageTab.PACKAGES -> packageSearchInput
+            PackageTab.SKILLS -> skillSearchInput
+            PackageTab.MCP -> mcpSearchInput
+        }
+    val activeSearchPlaceholderRes =
+        when (selectedTab) {
+            PackageTab.PLUGINS -> R.string.plugin_market_search_placeholder
+            PackageTab.PACKAGES -> R.string.package_market_search_placeholder
+            PackageTab.SKILLS -> R.string.skill_market_search_placeholder
+            PackageTab.MCP -> R.string.mcp_market_search_placeholder
+        }
+    val activeSearchApplying =
+        when (selectedTab) {
+            PackageTab.PLUGINS ->
+                pluginSearchInput.trim() != pluginSearchQuery || isPluginSearchFiltering
+            PackageTab.PACKAGES ->
+                packageSearchInput.trim() != packageSearchQuery || isPackageSearchFiltering
+            PackageTab.SKILLS -> skillSearchInput.trim() != skillSearchQuery
+            PackageTab.MCP -> mcpSearchInput.trim() != mcpSearchQuery
+        }
+
     BindMarketSearchToTopBar(
-        enabled = selectedTab == PackageTab.PACKAGES,
-        searchQuery = packageSearchQuery,
-        onSearchQueryChanged = { packageSearchQuery = it },
-        searchPlaceholderRes = R.string.package_market_search_placeholder
+        enabled = true,
+        searchQuery = activeSearchInput,
+        onSearchQueryChanged = { query ->
+            when (selectedTab) {
+                PackageTab.PLUGINS -> pluginSearchInput = query
+                PackageTab.PACKAGES -> packageSearchInput = query
+                PackageTab.SKILLS -> skillSearchInput = query
+                PackageTab.MCP -> mcpSearchInput = query
+            }
+        },
+        searchPlaceholderRes = activeSearchPlaceholderRes,
+        isSearching = activeSearchApplying
     )
 
     CustomScaffold(
@@ -402,7 +528,7 @@ fun PackageManagerScreen(
             }
         },
         floatingActionButton = {
-            if (selectedTab == PackageTab.PACKAGES) {
+            if (selectedTab == PackageTab.PLUGINS || selectedTab == PackageTab.PACKAGES) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.End
@@ -468,6 +594,7 @@ fun PackageManagerScreen(
                         Icon(
                             imageVector = Icons.Rounded.Add,
                             contentDescription = when (selectedTab) {
+                                PackageTab.PLUGINS -> context.getString(R.string.import_external_plugin)
                                 PackageTab.PACKAGES -> context.getString(R.string.import_external_package)
                                 else -> context.getString(R.string.import_action)
                             }
@@ -506,6 +633,38 @@ fun PackageManagerScreen(
                     }
                 }
             ) {
+                // 插件标签
+                Tab(
+                    selected = selectedTab == PackageTab.PLUGINS,
+                    onClick = { selectedTab = PackageTab.PLUGINS },
+                    modifier = Modifier.height(48.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Apps,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = if (selectedTab == PackageTab.PLUGINS)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            context.getString(R.string.nav_group_plugins),
+                            style = MaterialTheme.typography.bodySmall,
+                            softWrap = false,
+                            color = if (selectedTab == PackageTab.PLUGINS)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
                 // 包管理标签
                 Tab(
                     selected = selectedTab == PackageTab.PACKAGES,
@@ -609,190 +768,138 @@ fun PackageManagerScreen(
                     .fillMaxSize()
             ) {
                 when (selectedTab) {
+                    PackageTab.PLUGINS -> {
+                        PluginTabContent(
+                            plugins = filteredPluginContainers,
+                            enabledPackageNames = visibleImportedPackages.value,
+                            isLoading = isLoading,
+                            isSearchActive = pluginSearchQuery.isNotBlank(),
+                            onPluginClick = { packageName ->
+                                selectedPackage = packageName
+                                showDetails = true
+                            },
+                            onTogglePlugin = { details, isChecked ->
+                                val currentImported =
+                                    visibleImportedPackages.value.toMutableList()
+                                if (isChecked) {
+                                    if (!currentImported.contains(details.packageName)) {
+                                        currentImported.add(details.packageName)
+                                    }
+                                } else {
+                                    currentImported.remove(details.packageName)
+                                    details.subpackages.forEach { subpackage ->
+                                        currentImported.remove(subpackage.packageName)
+                                    }
+                                }
+                                visibleImportedPackages.value = currentImported
+
+                                scope.launch {
+                                    try {
+                                        val updatedImported =
+                                            withContext(Dispatchers.IO) {
+                                                if (isChecked) {
+                                                    packageManager.enablePackage(details.packageName)
+                                                } else {
+                                                    packageManager.disablePackage(details.packageName)
+                                                }
+                                                packageManager.getEnabledPackageNames()
+                                            }
+
+                                        importedPackages.value = updatedImported
+                                        visibleImportedPackages.value = updatedImported.toList()
+                                    } catch (e: Exception) {
+                                        AppLogger.e(
+                                            "PackageManagerScreen",
+                                            if (isChecked) "Failed to enable plugin" else "Failed to disable plugin",
+                                            e
+                                        )
+                                        visibleImportedPackages.value = importedPackages.value
+                                        snackbarHostState.showSnackbar(
+                                            message =
+                                                if (isChecked) {
+                                                    context.getString(R.string.plugin_enable_failed)
+                                                } else {
+                                                    context.getString(R.string.plugin_disable_failed)
+                                                }
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                    }
+
                     PackageTab.PACKAGES -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 16.dp)
-                        ) {
-                            if (availablePackages.value.isEmpty() && isLoading) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator()
-                                }
-                            } else {
-                                Surface(
-                                    modifier = Modifier.fillMaxSize(),
-                                    color = MaterialTheme.colorScheme.background,
-                                    shape = MaterialTheme.shapes.medium
-                                ) {
-                                    val packages = filteredAvailablePackages
-                                    val isPackageSearchActive = packageSearchQuery.isNotBlank()
-                                    val groupedPackagesRaw = packages.entries.groupBy { it.value.category }
-                                    val categoryOrder = listOf("ToolPkg", "Automatic", "Experimental", "Draw", "Other")
-                                    val sortedCategories =
-                                        groupedPackagesRaw.keys.sortedWith { a, b ->
-                                            val indexA = categoryOrder.indexOf(a)
-                                            val indexB = categoryOrder.indexOf(b)
-                                            when {
-                                                indexA == -1 && indexB == -1 -> a.compareTo(b)
-                                                indexA == -1 -> 1
-                                                indexB == -1 -> -1
-                                                else -> indexA - indexB
-                                            }
-                                        }
-
-                                    val groupedPackages = linkedMapOf<String, Map<String, ToolPackage>>()
-                                    sortedCategories.forEach { category ->
-                                        val entries = groupedPackagesRaw[category].orEmpty()
-                                        val sortedEntries = entries.sortedBy { it.key }
-                                        groupedPackages[category] =
-                                            sortedEntries.associate { entry -> entry.key to entry.value }
+                        PackageTabContent(
+                            packages = filteredAvailablePackages,
+                            enabledPackageNames = visibleImportedPackages.value,
+                            isLoading = isLoading,
+                            isSearchActive = packageSearchQuery.isNotBlank(),
+                            onQuickPluginCreatorClick = {
+                                showQuickPluginCreatorDialog = true
+                            },
+                            onPackageClick = { packageName ->
+                                selectedPackage = packageName
+                                showDetails = true
+                            },
+                            onTogglePackage = { packageName, isChecked ->
+                                val currentImported =
+                                    visibleImportedPackages.value.toMutableList()
+                                if (isChecked) {
+                                    if (!currentImported.contains(packageName)) {
+                                        currentImported.add(packageName)
                                     }
+                                } else {
+                                    currentImported.remove(packageName)
+                                }
+                                visibleImportedPackages.value = currentImported
 
-                                    val automaticColor = MaterialTheme.colorScheme.primary
-                                    val experimentalColor = MaterialTheme.colorScheme.tertiary
-                                    val drawColor = MaterialTheme.colorScheme.secondary
-                                    val toolPkgColor = MaterialTheme.colorScheme.primary
-                                    val otherColor = MaterialTheme.colorScheme.onSurfaceVariant
-
-                                    LazyColumn(
-                                        modifier = Modifier.fillMaxSize(),
-                                        verticalArrangement = Arrangement.spacedBy(1.dp),
-                                        contentPadding = PaddingValues(top = 12.dp, bottom = 120.dp)
-                                    ) {
-                                        if (!isPackageSearchActive) {
-                                            item(key = "quick_plugin_creator_entry") {
-                                                QuickPluginCreatorEntry(
-                                                    onClick = { showQuickPluginCreatorDialog = true }
-                                                )
-                                            }
-                                        }
-
-                                        if (packages.isEmpty()) {
-                                            item(key = "empty_packages_state") {
-                                                EmptyState(
-                                                    message =
-                                                        context.getString(
-                                                            if (isPackageSearchActive) {
-                                                                R.string.no_matching_packages_found
-                                                            } else {
-                                                                R.string.no_packages_available
-                                                            }
-                                                        )
-                                                )
-                                            }
-                                        }
-
-                                        groupedPackages.forEach { (category, packagesInCategory) ->
-                                            val categoryColor = when (category) {
-                                                "Automatic" -> automaticColor
-                                                "Experimental" -> experimentalColor
-                                                "Draw" -> drawColor
-                                                "ToolPkg" -> toolPkgColor
-                                                else -> otherColor
+                                scope.launch {
+                                    try {
+                                        val updatedImported =
+                                            withContext(Dispatchers.IO) {
+                                                if (isChecked) {
+                                                    packageManager.enablePackage(packageName)
+                                                } else {
+                                                    packageManager.disablePackage(packageName)
+                                                }
+                                                packageManager.getEnabledPackageNames()
                                             }
 
-                                            items(
-                                                packagesInCategory.keys.toList(),
-                                                key = { it }) { packageName ->
-                                                val isFirstInCategory =
-                                                    packageName == packagesInCategory.keys.first()
-                                                val categoryTagText =
-                                                    if (category == "ToolPkg") {
-                                                        context.getString(R.string.package_category_plugin)
-                                                    } else {
-                                                        category
-                                                    }
-
-                                                PackageListItemWithTag(
-                                                    packageName = packageName,
-                                                    toolPackage = packagesInCategory[packageName],
-                                                    isImported = visibleImportedPackages.value.contains(
-                                                        packageName
-                                                    ),
-                                                    categoryTag = if (isFirstInCategory) categoryTagText else null,
-                                                    category = category,
-                                                    categoryColor = categoryColor,
-                                                    isProminent = category == "ToolPkg",
-                                                    onPackageClick = {
-                                                        selectedPackage = packageName
-                                                        showDetails = true
-                                                    },
-                                                    onToggleImport = { isChecked ->
-                                                        val currentImported =
-                                                            visibleImportedPackages.value.toMutableList()
-                                                        if (isChecked) {
-                                                            if (!currentImported.contains(
-                                                                    packageName
-                                                                )
-                                                            ) {
-                                                                currentImported.add(packageName)
-                                                            }
-                                                        } else {
-                                                            currentImported.remove(packageName)
-                                                        }
-                                                        visibleImportedPackages.value =
-                                                            currentImported
-
-                                                        scope.launch {
-                                                            try {
-                                                                val updatedImported =
-                                                                    withContext(Dispatchers.IO) {
-                                                                        if (isChecked) {
-                                                                            packageManager.enablePackage(packageName)
-                                                                        } else {
-                                                                            packageManager.disablePackage(packageName)
-                                                                        }
-                                                                        packageManager.getEnabledPackageNames()
-                                                                    }
-
-                                                                importedPackages.value = updatedImported
-                                                            } catch (e: Exception) {
-                                                                AppLogger.e(
-                                                                    "PackageManagerScreen",
-                                                                    if (isChecked) "Failed to import package" else "Failed to remove package",
-                                                                    e
-                                                                )
-                                                                visibleImportedPackages.value =
-                                                                    importedPackages.value
-                                                                snackbarHostState.showSnackbar(
-                                                                    message = if (isChecked) context.getString(
-                                                                        R.string.package_import_failed
-                                                                    ) else context.getString(R.string.package_remove_failed)
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                )
-                                            }
-                                        }
+                                        importedPackages.value = updatedImported
+                                    } catch (e: Exception) {
+                                        AppLogger.e(
+                                            "PackageManagerScreen",
+                                            if (isChecked) "Failed to import package" else "Failed to remove package",
+                                            e
+                                        )
+                                        visibleImportedPackages.value = importedPackages.value
+                                        snackbarHostState.showSnackbar(
+                                            message =
+                                                if (isChecked) {
+                                                    context.getString(R.string.package_import_failed)
+                                                } else {
+                                                    context.getString(R.string.package_remove_failed)
+                                                }
+                                        )
                                     }
                                 }
                             }
-
-                            if (isLoading && availablePackages.value.isNotEmpty()) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator()
-                                }
-                            }
-                        }
-
+                        )
                     }
 
                     PackageTab.SKILLS -> {
                         SkillConfigScreen(
                             skillRepository = skillRepository,
                             snackbarHostState = snackbarHostState,
-                            onNavigateToSkillMarket = onNavigateToSkillMarket
+                            onNavigateToSkillMarket = onNavigateToSkillMarket,
+                            searchQuery = skillSearchQuery
                         )
                     }
 
                     PackageTab.MCP -> {
                         MCPConfigScreen(
-                            onNavigateToMCPMarket = onNavigateToMCPMarket
+                            onNavigateToMCPMarket = onNavigateToMCPMarket,
+                            searchQuery = mcpSearchQuery
                         )
                     }
                 }
@@ -802,9 +909,9 @@ fun PackageManagerScreen(
             if (showDetails && selectedPackage != null) {
                 PackageDetailsDialog(
                     packageName = selectedPackage!!,
-                    packageDescription = availablePackages.value[selectedPackage]?.description?.resolve(context)
+                    packageDescription = allAvailablePackages.value[selectedPackage]?.description?.resolve(context)
                         ?: "",
-                    toolPackage = availablePackages.value[selectedPackage],
+                    toolPackage = allAvailablePackages.value[selectedPackage],
                     packageManager = packageManager,
                     onRunScript = { toolPackageName, tool ->
                         selectedToolPackageName = toolPackageName
@@ -834,15 +941,29 @@ fun PackageManagerScreen(
                             isLoading = true
                             val loadResult =
                                 withContext(Dispatchers.IO) {
-                                    val available = packageManager.getTopLevelAvailablePackages(forceRefresh = true)
+                                    val available = packageManager.getExecutableAvailablePackages(forceRefresh = true)
                                     val allAvailable = packageManager.getAvailablePackages()
+                                    val plugins =
+                                        packageManager
+                                            .getToolPkgPluginContainerDetails(context)
+                                            .associateBy { it.packageName }
                                     val imported = packageManager.getEnabledPackageNames()
-                                    Triple(available, allAvailable, imported)
+                                    PackageManagerSnapshot(
+                                        availablePackages = available,
+                                        allAvailablePackages = allAvailable,
+                                        pluginContainers = plugins,
+                                        importedPackages = imported,
+                                        packageLoadErrors = packageManager.getPackageLoadErrors(),
+                                        packageLoadErrorInfos = packageManager.getPackageLoadErrorInfos()
+                                    )
                                 }
 
-                            availablePackages.value = loadResult.first
-                            allAvailablePackages.value = loadResult.second
-                            importedPackages.value = loadResult.third
+                            availablePackages.value = loadResult.availablePackages
+                            allAvailablePackages.value = loadResult.allAvailablePackages
+                            pluginContainers.value = loadResult.pluginContainers
+                            importedPackages.value = loadResult.importedPackages
+                            packageLoadErrors.value = loadResult.packageLoadErrors
+                            packageLoadErrorInfos.value = loadResult.packageLoadErrorInfos
                             visibleImportedPackages.value = importedPackages.value.toList()
                             AppLogger.d(
                                 "PackageManagerScreen",
@@ -913,8 +1034,12 @@ fun PackageManagerScreen(
                             val refreshed =
                                 withContext(Dispatchers.IO) {
                                     PackageManagerSnapshot(
-                                        availablePackages = packageManager.getTopLevelAvailablePackages(forceRefresh = true),
+                                        availablePackages = packageManager.getExecutableAvailablePackages(forceRefresh = true),
                                         allAvailablePackages = packageManager.getAvailablePackages(),
+                                        pluginContainers =
+                                            packageManager
+                                                .getToolPkgPluginContainerDetails(context)
+                                                .associateBy { it.packageName },
                                         importedPackages = packageManager.getEnabledPackageNames(),
                                         packageLoadErrors = packageManager.getPackageLoadErrors(),
                                         packageLoadErrorInfos = packageManager.getPackageLoadErrorInfos()
@@ -922,6 +1047,7 @@ fun PackageManagerScreen(
                                 }
                             availablePackages.value = refreshed.availablePackages
                             allAvailablePackages.value = refreshed.allAvailablePackages
+                            pluginContainers.value = refreshed.pluginContainers
                             importedPackages.value = refreshed.importedPackages
                             packageLoadErrors.value = refreshed.packageLoadErrors
                             packageLoadErrorInfos.value = refreshed.packageLoadErrorInfos
@@ -987,510 +1113,4 @@ fun PackageManagerScreen(
     }
 }
 
-private fun packageMatchesSearch(
-    context: android.content.Context,
-    packageName: String,
-    toolPackage: ToolPackage,
-    searchText: String
-): Boolean {
-    val searchableText =
-        buildList {
-            add(packageName)
-            add(toolPackage.name)
-            add(toolPackage.displayName.resolve(context))
-            add(toolPackage.description.resolve(context))
-            add(toolPackage.category)
-            addAll(toolPackage.author)
-            toolPackage.tools.forEach { tool ->
-                addPackageToolSearchText(context, tool)
-            }
-            toolPackage.states.forEach { state ->
-                add(state.id)
-                state.tools.forEach { tool ->
-                    addPackageToolSearchText(context, tool)
-                }
-            }
-        }
 
-    return searchableText.any { text -> text.contains(searchText, ignoreCase = true) }
-}
-
-private fun MutableList<String>.addPackageToolSearchText(
-    context: android.content.Context,
-    tool: PackageTool
-) {
-    add(tool.name)
-    add(tool.description.resolve(context))
-    tool.parameters.forEach { parameter ->
-        add(parameter.name)
-        add(parameter.description.resolve(context))
-        add(parameter.type)
-    }
-}
-
-@Composable
-private fun QuickPluginCreatorEntry(
-    onClick: () -> Unit
-) {
-    ElevatedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 12.dp)
-            .clickable(onClick = onClick),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        ),
-        shape = RoundedCornerShape(24.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Surface(
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AutoMode,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.quick_plugin_creator_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Text(
-                    text = stringResource(R.string.quick_plugin_creator_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
-                )
-            }
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        }
-    }
-}
-
-@Composable
-private fun PackageLoadErrorsDialog(
-    errorInfos: List<PackageManager.PackageLoadErrorInfo>,
-    onDeleteSource: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val scrollState = rememberScrollState()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(text = stringResource(R.string.error_occurred_simple)) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 420.dp)
-                    .verticalScroll(scrollState)
-            ) {
-                errorInfos.forEach { errorInfo ->
-                    Text(
-                        text = errorInfo.packageName,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    errorInfo.sourcePath?.let { sourcePath ->
-                        Text(
-                            text = sourcePath,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                    }
-                    Text(
-                        text = errorInfo.message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (errorInfo.isExternalSource && errorInfo.sourcePath != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = { onDeleteSource(errorInfo.sourcePath) }
-                        ) {
-                            Text(text = stringResource(R.string.package_conflict_delete_source))
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(text = stringResource(R.string.ok))
-            }
-        }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
-@Composable
-private fun PackageEnvironmentVariablesDialog(
-    requiredEnvByPackage: Map<String, List<EnvVar>>,
-    currentValues: Map<String, String>,
-    onDismiss: () -> Unit,
-    onConfirm: (Map<String, String>) -> Unit
-) {
-    val context = LocalContext.current
-    
-    val requiredEnvKeys = remember(requiredEnvByPackage) {
-        requiredEnvByPackage.values
-            .flatten()
-            .map { it.name }
-            .toSet()
-            .toList()
-            .sorted()
-    }
-
-    val editableValuesState =
-        remember(requiredEnvKeys, currentValues) {
-            mutableStateOf(
-                requiredEnvKeys.associateWith { key: String -> currentValues[key] ?: "" }
-            )
-        }
-    val editableValues by editableValuesState
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(text = stringResource(R.string.pkg_config_env_vars)) },
-        text = {
-            if (requiredEnvKeys.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.pkg_no_env_vars),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 400.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    requiredEnvByPackage.forEach { (packageName, envVars) ->
-                        stickyHeader(key = "header:$packageName") {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Surface(
-                                    modifier = Modifier.size(24.dp),
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primaryContainer
-                                ) {
-                                    Box(
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = packageName.first().uppercaseChar().toString(),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    }
-                                }
-                                Text(
-                                    text = packageName,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
- 
-                        items(
-                            items = envVars,
-                            key = { envVar -> "${packageName}:${envVar.name}" }
-                        ) { envVar ->
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(
-                                                text = envVar.name,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            // 显示是否必需的标记
-                                            if (envVar.required) {
-                                                Surface(
-                                                    modifier = Modifier.size(16.dp),
-                                                    shape = CircleShape,
-                                                    color = MaterialTheme.colorScheme.error
-                                                ) {
-                                                    Box(
-                                                        contentAlignment = Alignment.Center,
-                                                        modifier = Modifier.size(16.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = "!",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = MaterialTheme.colorScheme.onError
-                                                        )
-                                                    }
-                                                }
-                                            } else {
-                                                Surface(
-                                                    modifier = Modifier.size(16.dp),
-                                                    shape = CircleShape,
-                                                    color = MaterialTheme.colorScheme.secondaryContainer
-                                                ) {
-                                                    Box(
-                                                        contentAlignment = Alignment.Center,
-                                                        modifier = Modifier.size(16.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Check,
-                                                            contentDescription = "Optional",
-                                                            modifier = Modifier.size(10.dp),
-                                                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        // 显示描述
-                                        val description = envVar.description.resolve(context)
-                                        if (description.isNotBlank()) {
-                                            Text(
-                                                text = description,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                                // 显示默认值（如果有）
-                                if (envVar.defaultValue != null) {
-                                    Text(
-                                        text = stringResource(R.string.pkg_default, envVar.defaultValue),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(start = 8.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            OutlinedTextField(
-                                value = editableValues[envVar.name] ?: "",
-                                onValueChange = { newValue ->
-                                    val currentMap = editableValuesState.value
-                                    val newMap = currentMap.toMutableMap()
-                                    newMap[envVar.name] = newValue
-                                    editableValuesState.value = newMap
-                                },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = {
-                                    Text(
-                                        text = if (envVar.required) stringResource(R.string.pkg_input_required) else stringResource(R.string.pkg_input_optional),
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                },
-                                shape = RoundedCornerShape(6.dp),
-                                textStyle = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(editableValues) }) {
-                Text(text = stringResource(R.string.pkg_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(text = stringResource(R.string.pkg_cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun PackageListItemWithTag(
-    packageName: String,
-    toolPackage: ToolPackage?,
-    isImported: Boolean,
-    categoryTag: String?,
-    category: String, // 新增分类参数
-    categoryColor: Color,
-    isProminent: Boolean = false,
-    onPackageClick: () -> Unit,
-    onToggleImport: (Boolean) -> Unit
-) {
-    val context = LocalContext.current
-    val packageDisplayName =
-        toolPackage
-            ?.displayName
-            ?.resolve(context)
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-    val displayName = packageDisplayName ?: toolPackage?.name ?: packageName
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        // 分类标签（仅在有标签时显示）
-        if (categoryTag != null) {
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            horizontal = if (isProminent) 4.dp else 16.dp,
-                            vertical = if (isProminent) 8.dp else 6.dp
-                        ),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isProminent) {
-                    Surface(
-                        shape = RoundedCornerShape(999.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.36f)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Apps,
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = categoryColor
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = categoryTag,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = categoryColor,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                } else {
-                    Surface(
-                        modifier =
-                            Modifier
-                                .width(3.dp)
-                                .height(12.dp),
-                        color = categoryColor,
-                        shape = RoundedCornerShape(1.5.dp)
-                    ) {}
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = categoryTag,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = categoryColor,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        Surface(
-            onClick = onPackageClick,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .then(if (isProminent) Modifier.padding(horizontal = 4.dp) else Modifier),
-            color =
-                if (isProminent) {
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
-                } else {
-                    MaterialTheme.colorScheme.surface
-                },
-            tonalElevation = if (isProminent) 2.dp else 0.dp,
-            shadowElevation = 0.dp,
-            shape = if (isProminent) RoundedCornerShape(14.dp) else RoundedCornerShape(0.dp)
-        ) {
-            // 主要内容行
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            horizontal = 16.dp,
-                            vertical =
-                                if (isProminent) {
-                                    if (categoryTag != null) 10.dp else 12.dp
-                                } else {
-                                    if (categoryTag != null) 4.dp else 8.dp
-                                }
-                        ),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = when (category) {
-                        "Automatic" -> Icons.Default.AutoMode
-                        "Experimental" -> Icons.Default.Science
-                        "Draw" -> Icons.Default.Palette
-                        "ToolPkg" -> Icons.Default.Apps
-                        "Other" -> Icons.Default.Widgets
-                        else -> Icons.Default.Extension
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = categoryColor
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = displayName,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (isProminent) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val description = toolPackage?.description?.resolve(context).orEmpty()
-                    if (description.isNotBlank()) {
-                        Text(
-                            text = description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Switch(
-                    checked = isImported,
-                    onCheckedChange = onToggleImport,
-                    modifier = Modifier.scale(0.8f)
-                )
-            }
-        }
-    }
-}

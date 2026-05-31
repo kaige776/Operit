@@ -2,47 +2,31 @@ package com.ai.assistance.operit.ui.common.markdown
 
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.Typeface
-import android.text.StaticLayout
-import android.text.TextPaint
 import android.view.ViewConfiguration
-import android.widget.Toast
 import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Animatable
-import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -56,28 +40,18 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
-import com.ai.assistance.operit.R
 import com.ai.assistance.operit.ui.features.chat.webview.workspace.editor.editorCellWidth
 import com.ai.assistance.operit.ui.features.chat.webview.workspace.editor.editorNextSymbolOffset
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.ceil
-import kotlin.math.roundToInt
 
 private data class CodeBlockMetrics(
     val charWidth: Float,
@@ -115,14 +89,10 @@ internal fun CanvasMonospaceCodeBlockBody(
     autoWrapEnabled: Boolean,
     maxScrollableHeight: Dp,
     modifier: Modifier = Modifier,
-    textSelectionRequest: MarkdownTextSelectionRequest? = null,
-    selectionState: MarkdownCanvasTextSelectionState? = null,
-    nodeIndex: Int = -1,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val hostView = LocalView.current
-    val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val touchSlop =
@@ -156,15 +126,6 @@ internal fun CanvasMonospaceCodeBlockBody(
                 typeface = codeTypeface
                 textSize = textSizePx
                 color = CodeLineNumberColor.toArgb()
-                isSubpixelText = true
-            }
-        }
-    val selectionTextPaint =
-        remember(codeTypeface, textSizePx) {
-            TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                typeface = codeTypeface
-                textSize = textSizePx
-                color = CodeDefaultTextColor.toArgb()
                 isSubpixelText = true
             }
         }
@@ -336,187 +297,6 @@ internal fun CanvasMonospaceCodeBlockBody(
         val currentHorizontalOffsetPx by rememberUpdatedState(horizontalOffsetPx)
         val currentMaxVerticalOffsetPx by rememberUpdatedState(maxVerticalOffsetPx)
         val currentMaxHorizontalOffsetPx by rememberUpdatedState(maxHorizontalOffsetPx)
-        val activeSelectionState = selectionState
-        val selectionEnabled = activeSelectionState != null && nodeIndex >= 0
-        val codeSelectionLayouts =
-            remember(lineRenderData, codeColumnWidthPx, selectionTextPaint) {
-                val layoutWidth = codeColumnWidthPx.roundToInt().coerceAtLeast(1)
-                lineRenderData.map { line ->
-                    createCodeBlockSelectionLayout(line.text, selectionTextPaint, layoutWidth)
-                }
-            }
-        val codeSelectionInstructions =
-            remember(
-                lineRenderData,
-                codeSelectionLayouts,
-                lineTopsPx,
-                lineBlockHeightsPx,
-                verticalOffsetPx,
-                horizontalOffsetPx,
-                gutterWidthPx,
-                gutterToCodeGapPx,
-                viewportWidthPx,
-            ) {
-                buildCodeBlockSelectionInstructions(
-                    lineRenderData = lineRenderData,
-                    lineLayouts = codeSelectionLayouts,
-                    lineTopsPx = lineTopsPx,
-                    lineBlockHeightsPx = lineBlockHeightsPx,
-                    verticalOffsetPx = verticalOffsetPx,
-                    horizontalOffsetPx = horizontalOffsetPx,
-                    gutterWidthPx = gutterWidthPx,
-                    gutterToCodeGapPx = gutterToCodeGapPx,
-                    viewportWidthPx = viewportWidthPx,
-                )
-            }
-        var canvasBoundsInWindow by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-        var toolbarSize by remember(code) { mutableStateOf(IntSize.Zero) }
-        val autoScrollController = LocalMarkdownTextSelectionAutoScrollController.current
-        val selectionColor = MaterialTheme.colorScheme.primary
-        val selectionPaint = remember(selectionColor) {
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = selectionColor.copy(alpha = 0.24f).toArgb()
-                style = Paint.Style.FILL
-            }
-        }
-        val cursorPaint = remember(selectionColor, density) {
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = selectionColor.toArgb()
-                style = Paint.Style.STROKE
-                strokeWidth = with(density) { 2.dp.toPx() }
-                strokeCap = Paint.Cap.ROUND
-            }
-        }
-        val handlePaint = remember(selectionColor) {
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = selectionColor.toArgb()
-                style = Paint.Style.FILL
-            }
-        }
-        val handleRadiusPx = with(density) { 7.dp.toPx() }
-        val handleTouchRadiusPx = with(density) { 38.dp.toPx() }
-        val magnifierSurfaceColor = MaterialTheme.colorScheme.surface
-        val magnifierTextColor = MaterialTheme.colorScheme.onSurface
-        val magnifierBubblePaint = remember(magnifierSurfaceColor) {
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = magnifierSurfaceColor.copy(alpha = 0.96f).toArgb()
-                style = Paint.Style.FILL
-            }
-        }
-        val magnifierBorderPaint = remember(selectionColor, density) {
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = selectionColor.copy(alpha = 0.45f).toArgb()
-                style = Paint.Style.STROKE
-                strokeWidth = with(density) { 1.dp.toPx() }
-            }
-        }
-        val magnifierTextPaint = remember(magnifierTextColor, density) {
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = magnifierTextColor.toArgb()
-                textSize = with(density) { 17.sp.toPx() }
-                typeface = codeTypeface
-                isSubpixelText = true
-            }
-        }
-        val magnifierWidthDp = 164.dp
-        val magnifierHeightDp = 48.dp
-        val magnifierMarginDp = 8.dp
-        val magnifierWidthPx = with(density) { magnifierWidthDp.toPx() }
-        val magnifierHeightPx = with(density) { magnifierHeightDp.toPx() }
-        val magnifierMarginPx = with(density) { magnifierMarginDp.toPx() }
-        val toolbarGapPx = with(density) { 6.dp.toPx() }
-        val toolbarEdgePaddingPx = with(density) { 6.dp.toPx() }
-        val toolbarEstimatedWidthPx = with(density) { 96.dp.toPx() }
-        val toolbarEstimatedHeightPx = with(density) { 30.dp.toPx() }
-        val nodeSelectionState =
-            remember(activeSelectionState, nodeIndex, codeSelectionInstructions) {
-                derivedStateOf {
-                    val state = activeSelectionState ?: return@derivedStateOf null
-                    state.selection?.let { selection ->
-                        nodeSelectionSnapshot(
-                            selection = selection,
-                            nodeIndex = nodeIndex,
-                            instructions = codeSelectionInstructions,
-                        )
-                    }
-                }
-            }
-        val toolbarSelectionState =
-            remember(activeSelectionState, nodeIndex, codeSelectionInstructions) {
-                derivedStateOf {
-                    val state = activeSelectionState ?: return@derivedStateOf null
-                    val selection = state.selection
-                    if (selection == null || compareSelectionPoints(selection.start, selection.end) == 0) {
-                        null
-                    } else {
-                        val orderedStart = orderedSelectionPoints(selection).first
-                        if (orderedStart.nodeIndex == nodeIndex) {
-                            nodeSelectionSnapshot(
-                                selection = selection,
-                                nodeIndex = nodeIndex,
-                                instructions = codeSelectionInstructions,
-                            )
-                        } else {
-                            null
-                        }
-                    }
-                }
-            }
-        val nodeMagnifierState =
-            remember(activeSelectionState, nodeIndex) {
-                derivedStateOf {
-                    activeSelectionState?.dragMagnifier?.takeIf { it.hostNodeIndex == nodeIndex }
-                }
-            }
-        val nodeSelection = nodeSelectionState.value
-        val toolbarNodeSelection = toolbarSelectionState.value
-        val nodeMagnifier = nodeMagnifierState.value
-
-        LaunchedEffect(canvasBoundsInWindow, codeSelectionInstructions, selectionEnabled) {
-            val state = activeSelectionState ?: return@LaunchedEffect
-            if (!selectionEnabled) return@LaunchedEffect
-            val bounds = canvasBoundsInWindow ?: return@LaunchedEffect
-            state.updateNodeLayout(
-                nodeIndex = nodeIndex,
-                boundsInWindow = bounds,
-                instructions = codeSelectionInstructions,
-            )
-        }
-
-        LaunchedEffect(textSelectionRequest?.id, canvasBoundsInWindow, codeSelectionInstructions, selectionEnabled) {
-            val state = activeSelectionState ?: return@LaunchedEffect
-            if (!selectionEnabled) return@LaunchedEffect
-            val request = textSelectionRequest
-            if (request == null) {
-                state.clear()
-                return@LaunchedEffect
-            }
-            if (state.handledRequestId == request.id) {
-                return@LaunchedEffect
-            }
-            val bounds = canvasBoundsInWindow ?: return@LaunchedEffect
-            if (!bounds.containsOffset(request.positionInWindow)) {
-                state.dragMagnifier = null
-                return@LaunchedEffect
-            }
-
-            val localPosition = request.positionInWindow - Offset(bounds.left, bounds.top)
-            val hit = findTextSelectionHit(codeSelectionInstructions, localPosition, nodeIndex)
-            val instruction = hit?.let { codeSelectionInstructions.getOrNull(it.instructionIndex) }
-            state.handledRequestId = request.id
-            if (hit != null && instruction is DrawInstruction.TextLayout) {
-                state.selection =
-                    createInitialSelection(
-                        nodeIndex = nodeIndex,
-                        instructionIndex = hit.instructionIndex,
-                        instruction = instruction,
-                        offset = hit.offset,
-                    )
-            } else {
-                state.selection = null
-                state.dragMagnifier = null
-            }
-        }
 
         LaunchedEffect(code, autoWrapEnabled, maxVerticalOffsetPx) {
             if (autoScrollEnabled) {
@@ -660,153 +440,14 @@ internal fun CanvasMonospaceCodeBlockBody(
                 Modifier
                     .fillMaxWidth()
                     .height(with(density) { actualViewportHeightPx.toDp() })
-                    .onGloballyPositioned { coordinates ->
-                        canvasBoundsInWindow = coordinates.boundsInWindow()
-                    }
                     .focusRequester(focusRequester)
                     .focusable()
-                    .pointerInput(selectionEnabled, codeSelectionInstructions, activeSelectionState, nodeIndex) {
-                        if (!selectionEnabled) return@pointerInput
-                        val state = activeSelectionState ?: return@pointerInput
-                        awaitEachGesture {
-                            val down = awaitPointerEvent(PointerEventPass.Main).changes.first()
-                            val downPosition = down.position
-                            val selection = state.selection
-                            val activeHandle =
-                                if (selection != null) {
-                                    selectionHandleAt(
-                                        selection = selection,
-                                        nodeIndex = nodeIndex,
-                                        instructions = codeSelectionInstructions,
-                                        position = downPosition,
-                                        radiusPx = handleTouchRadiusPx,
-                                        handleRadiusPx = handleRadiusPx,
-                                    )
-                                } else {
-                                    null
-                                }
-
-                            if (activeHandle == null || selection == null) {
-                                return@awaitEachGesture
-                            }
-
-                            down.consume()
-                            val downBounds = canvasBoundsInWindow ?: return@awaitEachGesture
-                            val downPositionInWindow =
-                                Offset(
-                                    x = downBounds.left + downPosition.x,
-                                    y = downBounds.top + downPosition.y,
-                                )
-                            val initialPoint =
-                                when (activeHandle) {
-                                    TextSelectionHandle.START -> selection.start
-                                    TextSelectionHandle.END -> selection.end
-                                }
-                            state.dragMagnifier =
-                                TextSelectionMagnifier(
-                                    hostNodeIndex = nodeIndex,
-                                    handle = activeHandle,
-                                    position = downPosition,
-                                    positionInWindow = downPositionInWindow,
-                                    point = initialPoint,
-                                )
-                            autoScrollController?.reset()
-                            try {
-                                while (true) {
-                                    val event = awaitPointerEvent(PointerEventPass.Main)
-                                    val change = event.changes.firstOrNull() ?: break
-                                    if (!change.pressed) break
-                                    val changeBounds = canvasBoundsInWindow ?: break
-                                    val changePositionInWindow =
-                                        Offset(
-                                            x = changeBounds.left + change.position.x,
-                                            y = changeBounds.top + change.position.y,
-                                        )
-                                    val currentMagnifier = state.dragMagnifier
-                                    if (currentMagnifier?.hostNodeIndex == nodeIndex) {
-                                        state.dragMagnifier =
-                                            currentMagnifier.copy(
-                                                position = change.position,
-                                                positionInWindow = changePositionInWindow,
-                                            )
-                                    }
-                                    val point = state.findPointInWindow(changePositionInWindow)
-                                    if (point != null) {
-                                        val currentSelection = state.selection ?: selection
-                                        val updatedSelection =
-                                            when (activeHandle) {
-                                                TextSelectionHandle.START -> currentSelection.copy(start = point)
-                                                TextSelectionHandle.END -> currentSelection.copy(end = point)
-                                            }
-                                        if (updatedSelection != currentSelection) {
-                                            state.selection = updatedSelection
-                                        }
-                                        state.dragMagnifier =
-                                            TextSelectionMagnifier(
-                                                hostNodeIndex = nodeIndex,
-                                                handle = activeHandle,
-                                                position = change.position,
-                                                positionInWindow = changePositionInWindow,
-                                                point = point,
-                                            )
-                                    }
-                                    change.consume()
-
-                                    val magnifier = state.dragMagnifier
-                                    if (magnifier?.hostNodeIndex != nodeIndex) break
-                                    val controller = autoScrollController
-                                    if (controller != null && controller.scrollByEdge(magnifier.positionInWindow)) {
-                                        val point = state.findPointInWindow(magnifier.positionInWindow)
-                                        val currentSelection = state.selection ?: selection
-                                        if (point != null) {
-                                            val updatedSelection =
-                                                when (magnifier.handle) {
-                                                    TextSelectionHandle.START -> currentSelection.copy(start = point)
-                                                    TextSelectionHandle.END -> currentSelection.copy(end = point)
-                                                }
-                                            if (updatedSelection != currentSelection) {
-                                                state.selection = updatedSelection
-                                            }
-                                            val bounds = canvasBoundsInWindow
-                                            if (bounds != null) {
-                                                state.dragMagnifier =
-                                                    magnifier.copy(
-                                                        position = magnifier.positionInWindow - Offset(bounds.left, bounds.top),
-                                                        point = point,
-                                                    )
-                                            }
-                                        }
-                                    }
-                                }
-                            } finally {
-                                autoScrollController?.reset()
-                                state.dragMagnifier = null
-                            }
-                        }
-                    }
                     .pointerInput(autoWrapEnabled, maxHorizontalOffsetPx, maxVerticalOffsetPx) {
                         if (maxHorizontalOffsetPx <= 0f && maxVerticalOffsetPx <= 0f) {
                             return@pointerInput
                         }
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
-                            val activeSelection = activeSelectionState?.selection
-                            val downHitsSelectionHandle =
-                                if (selectionEnabled && activeSelection != null) {
-                                    selectionHandleAt(
-                                        selection = activeSelection,
-                                        nodeIndex = nodeIndex,
-                                        instructions = codeSelectionInstructions,
-                                        position = down.position,
-                                        radiusPx = handleTouchRadiusPx,
-                                        handleRadiusPx = handleRadiusPx,
-                                    ) != null
-                                } else {
-                                    false
-                                }
-                            if (downHitsSelectionHandle) {
-                                return@awaitEachGesture
-                            }
                             var activePointerId: PointerId = down.id
                             var gestureStartPosition = down.position
                             var lastPointerPosition = down.position
@@ -995,273 +636,8 @@ internal fun CanvasMonospaceCodeBlockBody(
                         nativeCanvas.drawText(label, lineNumberX, lineNumberBaseline, lineNumberPaint)
                     }
                 }
-
-                val selectionForInstruction = nodeSelection
-                if (selectionForInstruction != null) {
-                    drawIntoCanvas { canvas ->
-                        val nativeCanvas = canvas.nativeCanvas
-                        val selectionPath = android.graphics.Path()
-                        codeSelectionInstructions.forEachIndexed { instructionIndex, instruction ->
-                            val textLayout = instruction as? DrawInstruction.TextLayout ?: return@forEachIndexed
-                            val selectionRange =
-                                selectedRangeForInstruction(
-                                    selection = selectionForInstruction,
-                                    instructionIndex = instructionIndex,
-                                    textLength = textLayout.layout.text.length,
-                                )
-                            val hasSelectionHandle =
-                                selectionForInstruction.startHandle?.instructionIndex == instructionIndex ||
-                                    selectionForInstruction.endHandle?.instructionIndex == instructionIndex
-                            if (selectionRange == null && !hasSelectionHandle) {
-                                return@forEachIndexed
-                            }
-
-                            nativeCanvas.save()
-                            nativeCanvas.clipRect(
-                                gutterWidthPx + gutterToCodeGapPx,
-                                0f,
-                                size.width,
-                                size.height,
-                            )
-                            nativeCanvas.translate(textLayout.x, textLayout.y)
-                            if (selectionRange != null) {
-                                selectionPath.reset()
-                                textLayout.layout.getSelectionPath(
-                                    selectionRange.start,
-                                    selectionRange.end,
-                                    selectionPath,
-                                )
-                                nativeCanvas.drawPath(selectionPath, selectionPaint)
-                            }
-                            val selectionStartPoint = selectionForInstruction.startHandle
-                            if (
-                                selectionStartPoint != null &&
-                                    selectionStartPoint.instructionIndex == instructionIndex
-                            ) {
-                                drawCanvasTextSelectionHandle(
-                                    canvas = nativeCanvas,
-                                    instruction =
-                                        textLayout.copy(
-                                            x = 0f,
-                                            y = 0f,
-                                        ),
-                                    offset = selectionStartPoint.offset,
-                                    cursorPaint = cursorPaint,
-                                    handlePaint = handlePaint,
-                                    handleRadiusPx = handleRadiusPx,
-                                )
-                            }
-                            val selectionEndPoint = selectionForInstruction.endHandle
-                            if (
-                                selectionEndPoint != null &&
-                                    selectionEndPoint.instructionIndex == instructionIndex
-                            ) {
-                                drawCanvasTextSelectionHandle(
-                                    canvas = nativeCanvas,
-                                    instruction =
-                                        textLayout.copy(
-                                            x = 0f,
-                                            y = 0f,
-                                        ),
-                                    offset = selectionEndPoint.offset,
-                                    cursorPaint = cursorPaint,
-                                    handlePaint = handlePaint,
-                                    handleRadiusPx = handleRadiusPx,
-                                )
-                            }
-                            nativeCanvas.restore()
-                        }
-                    }
-                }
-            }
-            val magnifier = nodeMagnifier
-            val magnifierInstruction =
-                magnifier?.let {
-                    activeSelectionState?.textLayoutForPoint(it.point)
-                }
-            if (magnifier != null && magnifierInstruction != null) {
-                Popup(
-                    alignment = Alignment.TopStart,
-                    offset =
-                        IntOffset(
-                            x = (magnifier.position.x - magnifierWidthPx / 2f).roundToInt(),
-                            y = (magnifier.position.y - magnifierHeightPx - magnifierMarginPx * 3f).roundToInt(),
-                        ),
-                    properties =
-                        PopupProperties(
-                            focusable = false,
-                            clippingEnabled = false,
-                        ),
-                ) {
-                    Canvas(
-                        modifier = Modifier.size(magnifierWidthDp, magnifierHeightDp)
-                    ) {
-                        drawIntoCanvas { canvas ->
-                            drawCanvasTextSelectionMagnifier(
-                                canvas = canvas.nativeCanvas,
-                                layout = magnifierInstruction.layout,
-                                magnifier = magnifier,
-                                bubblePaint = magnifierBubblePaint,
-                                borderPaint = magnifierBorderPaint,
-                                textPaint = magnifierTextPaint,
-                                cursorPaint = cursorPaint,
-                                bubbleWidthPx = size.width,
-                                bubbleHeightPx = size.height,
-                                marginPx = magnifierMarginPx,
-                            )
-                        }
-                    }
-                }
-            }
-            if (toolbarNodeSelection != null) {
-                val selectionBounds =
-                    selectionVisualBounds(
-                        instructions = codeSelectionInstructions,
-                        selection = toolbarNodeSelection,
-                        handleRadiusPx = handleRadiusPx,
-                    )
-                Surface(
-                    modifier =
-                        Modifier
-                            .offset {
-                                val toolbarWidthPx =
-                                    if (toolbarSize.width > 0) toolbarSize.width.toFloat() else toolbarEstimatedWidthPx
-                                val toolbarHeightPx =
-                                    if (toolbarSize.height > 0) toolbarSize.height.toFloat() else toolbarEstimatedHeightPx
-                                placementForToolbar(
-                                    selectionBounds = selectionBounds,
-                                    toolbarWidthPx = toolbarWidthPx,
-                                    toolbarHeightPx = toolbarHeightPx,
-                                    canvasWidthPx = viewportWidthPx.toFloat(),
-                                    canvasHeightPx = actualViewportHeightPx,
-                                    gapPx = toolbarGapPx,
-                                    edgePaddingPx = toolbarEdgePaddingPx,
-                                )
-                            }
-                            .onGloballyPositioned { coordinates ->
-                                toolbarSize = coordinates.size
-                            },
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
-                    tonalElevation = 3.dp,
-                    shadowElevation = 4.dp,
-                ) {
-                    Row(
-                        modifier =
-                            Modifier
-                                .height(30.dp)
-                                .padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier =
-                                Modifier
-                                    .height(24.dp)
-                                    .clickable {
-                                        val state = activeSelectionState
-                                        if (state != null) {
-                                            clipboardManager.setText(AnnotatedString(state.selectedText()))
-                                            state.dismissSelection()
-                                        }
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(R.string.message_copied_to_clipboard),
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                    .padding(horizontal = 9.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = context.getString(R.string.copy),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                            )
-                        }
-                        Box(
-                            modifier =
-                                Modifier
-                                    .height(18.dp)
-                                    .width(1.dp)
-                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
-                        )
-                        Box(
-                            modifier =
-                                Modifier
-                                    .height(24.dp)
-                                    .clickable {
-                                        activeSelectionState?.dismissSelection()
-                                    }
-                                    .padding(horizontal = 9.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = context.getString(R.string.done),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                }
             }
         }
-    }
-}
-
-private fun createCodeBlockSelectionLayout(
-    text: String,
-    paint: TextPaint,
-    width: Int,
-): StaticLayout {
-    @Suppress("DEPRECATION")
-    return StaticLayout(
-        text,
-        paint,
-        width.coerceAtLeast(1),
-        android.text.Layout.Alignment.ALIGN_NORMAL,
-        1f,
-        0f,
-        false,
-    )
-}
-
-private fun buildCodeBlockSelectionInstructions(
-    lineRenderData: List<CodeBlockLineRenderData>,
-    lineLayouts: List<StaticLayout>,
-    lineTopsPx: FloatArray,
-    lineBlockHeightsPx: FloatArray,
-    verticalOffsetPx: Float,
-    horizontalOffsetPx: Float,
-    gutterWidthPx: Float,
-    gutterToCodeGapPx: Float,
-    viewportWidthPx: Int,
-): List<DrawInstruction> {
-    if (lineRenderData.isEmpty()) return emptyList()
-
-    val codeStartX = gutterWidthPx + gutterToCodeGapPx - horizontalOffsetPx
-    val hitLeft = gutterWidthPx + gutterToCodeGapPx
-    val hitRight = viewportWidthPx.toFloat().coerceAtLeast(hitLeft)
-
-    return lineRenderData.mapIndexed { index, line ->
-        val lineTop = lineTopsPx[index] - verticalOffsetPx
-        val lineHeight = lineBlockHeightsPx[index].coerceAtLeast(1f)
-        DrawInstruction.TextLayout(
-            layout = lineLayouts[index],
-            x = codeStartX,
-            y = lineTop,
-            text = line.text,
-            copySeparatorBefore = if (index == 0) TextCopySeparator.NONE else TextCopySeparator.NEWLINE,
-            selectionHitBounds =
-                RectF(
-                    hitLeft,
-                    lineTop,
-                    hitRight,
-                    lineTop + lineHeight,
-                ),
-        )
     }
 }
 

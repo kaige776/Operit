@@ -3,7 +3,6 @@ package com.ai.assistance.operit.ui.features.chat.components.style.cursor
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import com.ai.assistance.operit.data.model.ChatMessage
-import com.ai.assistance.operit.ui.common.markdown.MarkdownTextSelectionRequest
 import com.ai.assistance.operit.ui.features.chat.components.ChatMessageHeightMemory
 import com.ai.assistance.operit.util.stream.Stream
 
@@ -34,7 +33,6 @@ fun CursorStyleChatMessage(
         onDeleteMessage: ((Int) -> Unit)? = null,
         index: Int = -1,
         enableDialogs: Boolean = true,  // 新增参数：是否启用弹窗功能，默认启用
-        textSelectionRequest: MarkdownTextSelectionRequest? = null,
         onEditSummary: ((ChatMessage) -> Unit)? = null,
 ) {
     when (message.sender) {
@@ -60,7 +58,6 @@ fun CursorStyleChatMessage(
                     overrideStream = overrideStream,
                     heightMemory = heightMemory,
                     enableDialogs = enableDialogs,  // 传递弹窗启用状态
-                    textSelectionRequest = textSelectionRequest,
             )
         }
         "summary" -> {

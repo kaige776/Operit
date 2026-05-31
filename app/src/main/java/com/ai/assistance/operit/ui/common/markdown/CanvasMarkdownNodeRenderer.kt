@@ -9,7 +9,6 @@ import android.text.style.ImageSpan
 import android.text.style.StyleSpan
 import android.text.style.URLSpan
 import android.text.style.UnderlineSpan
-import android.widget.Toast
 import com.ai.assistance.operit.util.AppLogger
 import android.util.LruCache
 import androidx.compose.foundation.Canvas
@@ -33,7 +32,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -46,24 +44,16 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnit.Companion.Unspecified
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
-import com.ai.assistance.operit.R
 import com.ai.assistance.operit.ui.common.displays.LatexCache
 import com.ai.assistance.operit.ui.theme.LocalAiMarkdownTextLayoutSettings
 import com.ai.assistance.operit.util.markdown.MarkdownNodeStable
@@ -74,8 +64,6 @@ import android.graphics.Typeface
 import android.widget.TextView
 import ru.noties.jlatexmath.JLatexMathDrawable
 import kotlin.math.floor
-import kotlin.math.roundToInt
-import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "CanvasMarkdownRenderer"
 private const val MAX_CANVAS_HEIGHT_PX = 250_000f
@@ -180,12 +168,6 @@ private fun splitPlainTextParagraphs(content: CharSequence): List<CharSequence> 
     }
 
     return paragraphs.filter { it.isNotEmpty() }
-}
-
-private fun stripBlockQuoteMarkers(content: String): String {
-    return content.lines().joinToString("\n") {
-        it.removePrefix("> ").removePrefix(">")
-    }
 }
 
 /**
@@ -360,9 +342,7 @@ internal sealed class DrawInstruction {
         val text: String,
         val x: Float,
         val y: Float,
-        val paint: android.graphics.Paint,
-        val copySeparatorBefore: TextCopySeparator = TextCopySeparator.AUTO,
-        val selectionHitBounds: android.graphics.RectF? = null,
+        val paint: android.graphics.Paint
     ) : DrawInstruction()
     
     data class Line(
@@ -377,26 +357,8 @@ internal sealed class DrawInstruction {
         val layout: StaticLayout,
         val x: Float,
         val y: Float,
-        val text: CharSequence? = null, // 添加字段以存储Spannable
-        val copySeparatorBefore: TextCopySeparator = TextCopySeparator.AUTO,
-        val selectionHitBounds: android.graphics.RectF? = null,
-        val tableCellInfo: MarkdownTableCellInfo? = null,
+        val text: CharSequence? = null // 添加字段以存储Spannable
     ) : DrawInstruction()
-}
-
-internal data class MarkdownTableCellInfo(
-    val rowIndex: Int,
-    val columnIndex: Int,
-    val columnCount: Int,
-    val hasHeader: Boolean,
-)
-
-internal enum class TextCopySeparator {
-    AUTO,
-    NONE,
-    SPACE,
-    TAB,
-    NEWLINE,
 }
 
 /**
@@ -406,200 +368,6 @@ private data class LayoutResult(
     val height: Float,
     val actualWidth: Float,  // 实际使用的最大宽度
     val instructions: List<DrawInstruction>
-)
-
-internal data class ActiveTextSelection(
-    val start: TextSelectionPoint,
-    val end: TextSelectionPoint,
-)
-
-internal data class TextSelectionPoint(
-    val nodeIndex: Int,
-    val instructionIndex: Int,
-    val offset: Int,
-)
-
-internal data class TextSelectionRange(
-    val start: Int,
-    val end: Int,
-)
-
-internal data class TextSelectionNodeSnapshot(
-    val start: TextSelectionPoint,
-    val end: TextSelectionPoint,
-    val startHandle: TextSelectionPoint?,
-    val endHandle: TextSelectionPoint?,
-)
-
-private data class TextSelectionNodeLayout(
-    val boundsInWindow: Rect,
-    val instructions: List<DrawInstruction>,
-)
-
-internal data class MarkdownTextSelectionAutoScrollController(
-    val scrollByEdge: (positionInWindow: Offset) -> Boolean,
-    val reset: () -> Unit,
-)
-
-internal val LocalMarkdownTextSelectionAutoScrollController =
-    staticCompositionLocalOf<MarkdownTextSelectionAutoScrollController?> { null }
-
-internal class MarkdownCanvasTextSelectionState {
-    var selection by mutableStateOf<ActiveTextSelection?>(null)
-    var handledRequestId by mutableStateOf<Long?>(null)
-    var dragMagnifier by mutableStateOf<TextSelectionMagnifier?>(null)
-    private val nodeLayouts = mutableStateMapOf<Int, TextSelectionNodeLayout>()
-    private var nodeLayoutVersion = 0
-    private var orderedNodeLayoutVersion = -1
-    private var orderedNodeLayoutCache: List<Pair<Int, TextSelectionNodeLayout>> = emptyList()
-
-    fun updateNodeLayout(
-        nodeIndex: Int,
-        boundsInWindow: Rect,
-        instructions: List<DrawInstruction>,
-    ) {
-        val nextLayout = TextSelectionNodeLayout(boundsInWindow, instructions)
-        if (nodeLayouts[nodeIndex] != nextLayout) {
-            nodeLayouts[nodeIndex] = nextLayout
-            nodeLayoutVersion++
-        }
-    }
-
-    fun retainNodeIndices(nodeIndices: Set<Int>) {
-        var removedLayout = false
-        nodeLayouts.keys.toList().forEach { nodeIndex ->
-            if (nodeIndex !in nodeIndices) {
-                nodeLayouts.remove(nodeIndex)
-                removedLayout = true
-            }
-        }
-        if (removedLayout) {
-            nodeLayoutVersion++
-        }
-        val magnifierHostNodeIndex = dragMagnifier?.hostNodeIndex
-        if (magnifierHostNodeIndex != null && magnifierHostNodeIndex !in nodeIndices) {
-            dragMagnifier = null
-        }
-    }
-
-    fun clear() {
-        selection = null
-        handledRequestId = null
-        dragMagnifier = null
-    }
-
-    fun dismissSelection() {
-        selection = null
-        dragMagnifier = null
-    }
-
-    fun findPointInWindow(positionInWindow: Offset): TextSelectionPoint? {
-        val layouts = orderedNodeLayouts()
-        if (layouts.isEmpty()) return null
-
-        layouts.forEach { (nodeIndex, nodeLayout) ->
-            val bounds = nodeLayout.boundsInWindow
-            if (bounds.containsOffset(positionInWindow)) {
-                val localPosition = positionInWindow - Offset(bounds.left, bounds.top)
-                return findTextSelectionPoint(
-                    instructions = nodeLayout.instructions,
-                    position = localPosition,
-                    nodeIndex = nodeIndex,
-                )
-            }
-        }
-
-        val first = layouts.first()
-        val last = layouts.last()
-        if (positionInWindow.y < first.second.boundsInWindow.top) {
-            return first.second.firstPoint(first.first)
-        }
-        if (positionInWindow.y > last.second.boundsInWindow.bottom) {
-            return last.second.lastPoint(last.first)
-        }
-
-        for (i in 0 until layouts.lastIndex) {
-            val current = layouts[i]
-            val next = layouts[i + 1]
-            val currentBottom = current.second.boundsInWindow.bottom
-            val nextTop = next.second.boundsInWindow.top
-            if (positionInWindow.y > currentBottom && positionInWindow.y < nextTop) {
-                val midpoint = (currentBottom + nextTop) / 2f
-                return if (positionInWindow.y < midpoint) {
-                    current.second.lastPoint(current.first)
-                } else {
-                    next.second.firstPoint(next.first)
-                }
-            }
-        }
-
-        return null
-    }
-
-    fun selectedText(): String {
-        val activeSelection = selection ?: return ""
-        val (startPoint, endPoint) = orderedSelectionPoints(activeSelection)
-        return buildString {
-            orderedNodeLayouts()
-                .forEach { (nodeIndex, nodeLayout) ->
-                    if (nodeIndex >= startPoint.nodeIndex && nodeIndex <= endPoint.nodeIndex) {
-                        val part = selectedText(activeSelection, nodeIndex, nodeLayout.instructions)
-                        if (part.isNotEmpty()) {
-                            if (isNotEmpty()) append('\n')
-                            append(part)
-                        }
-                    }
-                }
-        }
-    }
-
-    fun textLayoutForPoint(point: TextSelectionPoint): DrawInstruction.TextLayout? {
-        return nodeLayouts[point.nodeIndex]
-            ?.instructions
-            ?.getOrNull(point.instructionIndex) as? DrawInstruction.TextLayout
-    }
-
-    private fun orderedNodeLayouts(): List<Pair<Int, TextSelectionNodeLayout>> {
-        if (orderedNodeLayoutVersion != nodeLayoutVersion) {
-            orderedNodeLayoutCache = nodeLayouts.toList().sortedBy { it.first }
-            orderedNodeLayoutVersion = nodeLayoutVersion
-        }
-        return orderedNodeLayoutCache
-    }
-
-    private fun TextSelectionNodeLayout.firstPoint(nodeIndex: Int): TextSelectionPoint? {
-        for (instructionIndex in instructions.indices) {
-            val instruction = instructions[instructionIndex]
-            if (instruction.selectableTextLength() > 0) {
-                return TextSelectionPoint(nodeIndex, instructionIndex, 0)
-            }
-        }
-        return null
-    }
-
-    private fun TextSelectionNodeLayout.lastPoint(nodeIndex: Int): TextSelectionPoint? {
-        for (instructionIndex in instructions.indices.reversed()) {
-            val instruction = instructions[instructionIndex]
-            val textLength = instruction.selectableTextLength()
-            if (textLength > 0) {
-                return TextSelectionPoint(nodeIndex, instructionIndex, textLength)
-            }
-        }
-        return null
-    }
-}
-
-internal enum class TextSelectionHandle {
-    START,
-    END,
-}
-
-internal data class TextSelectionMagnifier(
-    val hostNodeIndex: Int,
-    val handle: TextSelectionHandle,
-    val position: Offset,
-    val positionInWindow: Offset,
-    val point: TextSelectionPoint,
 )
 
 /**
@@ -630,845 +398,6 @@ private fun extractAccessibleText(instructions: List<DrawInstruction>): String {
     }.trim()
 }
 
-internal fun Rect.containsOffset(offset: Offset): Boolean {
-    return offset.x >= left && offset.x <= right && offset.y >= top && offset.y <= bottom
-}
-
-internal fun compareSelectionPoints(
-    first: TextSelectionPoint,
-    second: TextSelectionPoint,
-): Int {
-    val nodeCompare = first.nodeIndex.compareTo(second.nodeIndex)
-    if (nodeCompare != 0) return nodeCompare
-    val instructionCompare = first.instructionIndex.compareTo(second.instructionIndex)
-    return if (instructionCompare != 0) instructionCompare else first.offset.compareTo(second.offset)
-}
-
-internal fun orderedSelectionPoints(selection: ActiveTextSelection): Pair<TextSelectionPoint, TextSelectionPoint> {
-    return if (compareSelectionPoints(selection.start, selection.end) <= 0) {
-        selection.start to selection.end
-    } else {
-        selection.end to selection.start
-    }
-}
-
-private fun selectedRangeForInstruction(
-    selection: ActiveTextSelection,
-    nodeIndex: Int,
-    instructionIndex: Int,
-    textLength: Int,
-): TextSelectionRange? {
-    val (startPoint, endPoint) = orderedSelectionPoints(selection)
-    if (nodeIndex < startPoint.nodeIndex || nodeIndex > endPoint.nodeIndex) {
-        return null
-    }
-    if (nodeIndex > startPoint.nodeIndex && nodeIndex < endPoint.nodeIndex) {
-        return if (textLength == 0) null else TextSelectionRange(0, textLength)
-    }
-
-    val startsHere = nodeIndex == startPoint.nodeIndex
-    val endsHere = nodeIndex == endPoint.nodeIndex
-    if (startsHere && instructionIndex < startPoint.instructionIndex) return null
-    if (endsHere && instructionIndex > endPoint.instructionIndex) return null
-
-    val start =
-        if (startsHere && instructionIndex == startPoint.instructionIndex) {
-            startPoint.offset
-        } else {
-            0
-        }.coerceIn(0, textLength)
-    val end =
-        if (endsHere && instructionIndex == endPoint.instructionIndex) {
-            endPoint.offset
-        } else {
-            textLength
-        }.coerceIn(0, textLength)
-
-    return if (start == end) null else TextSelectionRange(minOf(start, end), maxOf(start, end))
-}
-
-internal fun selectedRangeForInstruction(
-    selection: TextSelectionNodeSnapshot,
-    instructionIndex: Int,
-    textLength: Int,
-): TextSelectionRange? {
-    if (instructionIndex < selection.start.instructionIndex || instructionIndex > selection.end.instructionIndex) {
-        return null
-    }
-
-    val start =
-        if (instructionIndex == selection.start.instructionIndex) {
-            selection.start.offset
-        } else {
-            0
-        }.coerceIn(0, textLength)
-    val end =
-        if (instructionIndex == selection.end.instructionIndex) {
-            selection.end.offset
-        } else {
-            textLength
-        }.coerceIn(0, textLength)
-
-    return if (start == end) null else TextSelectionRange(minOf(start, end), maxOf(start, end))
-}
-
-private fun DrawInstruction.selectableTextLength(): Int {
-    return when (this) {
-        is DrawInstruction.Text -> text.length
-        is DrawInstruction.TextLayout -> layout.text.length
-        is DrawInstruction.Line -> 0
-    }
-}
-
-private fun DrawInstruction.selectedText(range: TextSelectionRange): CharSequence {
-    return when (this) {
-        is DrawInstruction.Text -> text.subSequence(range.start, range.end)
-        is DrawInstruction.TextLayout ->
-            selectedTextWithInlineCodeMarkers(
-                text = layout.text,
-                start = range.start,
-                end = range.end,
-            )
-        is DrawInstruction.Line -> ""
-    }
-}
-
-private fun DrawInstruction.selectionBounds(): android.graphics.RectF? {
-    return when (this) {
-        is DrawInstruction.Text -> {
-            if (text.isEmpty()) {
-                null
-            } else {
-                android.graphics.RectF(
-                    x,
-                    y + paint.ascent(),
-                    x + paint.measureText(text),
-                    y + paint.descent(),
-                )
-            }
-        }
-        is DrawInstruction.TextLayout -> {
-            android.graphics.RectF(
-                x,
-                y,
-                x + layout.width,
-                y + layout.height,
-            )
-        }
-        is DrawInstruction.Line -> null
-    }
-}
-
-private fun DrawInstruction.selectionHitBounds(): android.graphics.RectF? {
-    return when (this) {
-        is DrawInstruction.Text -> selectionHitBounds ?: selectionBounds()
-        is DrawInstruction.TextLayout -> selectionHitBounds ?: selectionBounds()
-        is DrawInstruction.Line -> null
-    }
-}
-
-private fun DrawInstruction.cursorLineRect(offset: Int): android.graphics.RectF? {
-    return when (this) {
-        is DrawInstruction.Text -> {
-            val safeOffset = offset.coerceIn(0, text.length)
-            val cursorX = x + paint.measureText(text, 0, safeOffset)
-            android.graphics.RectF(
-                cursorX,
-                y + paint.ascent(),
-                cursorX,
-                y + paint.descent(),
-            )
-        }
-        is DrawInstruction.TextLayout -> {
-            val safeOffset = offset.coerceIn(0, layout.text.length)
-            val line = layout.getLineForOffset(safeOffset)
-            val cursorX = x + layout.getPrimaryHorizontal(safeOffset)
-            val top = y + layout.getLineTop(line)
-            val bottom = y + layout.getLineBottom(line)
-            android.graphics.RectF(cursorX, top.toFloat(), cursorX, bottom.toFloat())
-        }
-        is DrawInstruction.Line -> null
-    }
-}
-
-private fun DrawInstruction.selectedBounds(range: TextSelectionRange): android.graphics.RectF? {
-    return when (this) {
-        is DrawInstruction.Text -> {
-            if (range.start == range.end) {
-                null
-            } else {
-                val left = x + paint.measureText(text, 0, range.start.coerceIn(0, text.length))
-                val right = x + paint.measureText(text, 0, range.end.coerceIn(0, text.length))
-                android.graphics.RectF(
-                    minOf(left, right),
-                    y + paint.ascent(),
-                    maxOf(left, right),
-                    y + paint.descent(),
-                )
-            }
-        }
-        is DrawInstruction.TextLayout -> {
-            val localBounds = android.graphics.RectF()
-            val path = android.graphics.Path()
-            layout.getSelectionPath(range.start, range.end, path)
-            path.computeBounds(localBounds, true)
-            if (localBounds.isEmpty) {
-                null
-            } else {
-                localBounds.offset(x, y)
-                localBounds
-            }
-        }
-        is DrawInstruction.Line -> null
-    }
-}
-
-private fun DrawInstruction.pointForPosition(
-    nodeIndex: Int,
-    instructionIndex: Int,
-    position: Offset,
-): TextSelectionPoint {
-    return when (this) {
-        is DrawInstruction.Text -> {
-            val targetX = (position.x - x).coerceAtLeast(0f)
-            var offset = 0
-            while (offset < text.length) {
-                val before = paint.measureText(text, 0, offset)
-                val after = paint.measureText(text, 0, offset + 1)
-                if (targetX < (before + after) / 2f) {
-                    break
-                }
-                offset++
-            }
-            TextSelectionPoint(
-                nodeIndex = nodeIndex,
-                instructionIndex = instructionIndex,
-                offset = offset.coerceIn(0, text.length),
-            )
-        }
-        is DrawInstruction.TextLayout -> findPointInInstruction(
-            nodeIndex = nodeIndex,
-            instructionIndex = instructionIndex,
-            instruction = this,
-            position = position,
-        )
-        is DrawInstruction.Line -> TextSelectionPoint(nodeIndex, instructionIndex, 0)
-    }
-}
-
-private fun DrawInstruction.copySeparatorBefore(): TextCopySeparator {
-    return when (this) {
-        is DrawInstruction.Text -> copySeparatorBefore
-        is DrawInstruction.TextLayout -> copySeparatorBefore
-        is DrawInstruction.Line -> TextCopySeparator.AUTO
-    }
-}
-
-internal fun nodeSelectionSnapshot(
-    selection: ActiveTextSelection,
-    nodeIndex: Int,
-    instructions: List<DrawInstruction>,
-): TextSelectionNodeSnapshot? {
-    val (orderedStart, orderedEnd) = orderedSelectionPoints(selection)
-    if (nodeIndex < orderedStart.nodeIndex || nodeIndex > orderedEnd.nodeIndex) {
-        return null
-    }
-
-    var firstTextPoint: TextSelectionPoint? = null
-    var lastTextPoint: TextSelectionPoint? = null
-    instructions.forEachIndexed { instructionIndex, instruction ->
-        val textLength = instruction.selectableTextLength()
-        if (textLength > 0) {
-            if (firstTextPoint == null) {
-                firstTextPoint = TextSelectionPoint(nodeIndex, instructionIndex, 0)
-            }
-            lastTextPoint =
-                TextSelectionPoint(
-                    nodeIndex = nodeIndex,
-                    instructionIndex = instructionIndex,
-                    offset = textLength,
-                )
-        }
-    }
-
-    val start =
-        if (nodeIndex == orderedStart.nodeIndex) {
-            orderedStart
-        } else {
-            firstTextPoint
-        } ?: return null
-    val end =
-        if (nodeIndex == orderedEnd.nodeIndex) {
-            orderedEnd
-        } else {
-            lastTextPoint
-        } ?: return null
-
-    if (compareSelectionPoints(start, end) == 0) {
-        return null
-    }
-
-    return TextSelectionNodeSnapshot(
-        start = start,
-        end = end,
-        startHandle = selection.start.takeIf { it.nodeIndex == nodeIndex },
-        endHandle = selection.end.takeIf { it.nodeIndex == nodeIndex },
-    )
-}
-
-internal fun findTextSelectionHit(
-    instructions: List<DrawInstruction>,
-    position: Offset,
-    nodeIndex: Int,
-): TextSelectionPoint? {
-    instructions.forEachIndexed { index, instruction ->
-        val bounds = instruction.selectionHitBounds()
-        if (
-            bounds != null &&
-                position.x >= bounds.left &&
-                position.x <= bounds.right &&
-                position.y >= bounds.top &&
-                position.y <= bounds.bottom
-        ) {
-            return instruction.pointForPosition(nodeIndex, index, position)
-        }
-    }
-    return null
-}
-
-private fun findPointInInstruction(
-    nodeIndex: Int,
-    instructionIndex: Int,
-    instruction: DrawInstruction.TextLayout,
-    position: Offset,
-): TextSelectionPoint {
-    val layout = instruction.layout
-    val relativeX = (position.x - instruction.x).coerceIn(0f, layout.width.toFloat())
-    val relativeY = (position.y - instruction.y).coerceIn(0f, layout.height.toFloat())
-    val line = layout.getLineForVertical(relativeY.toInt())
-    return TextSelectionPoint(
-        nodeIndex = nodeIndex,
-        instructionIndex = instructionIndex,
-        offset = layout.getOffsetForHorizontal(line, relativeX).coerceIn(0, layout.text.length),
-    )
-}
-
-internal fun findTextSelectionPoint(
-    instructions: List<DrawInstruction>,
-    position: Offset,
-    nodeIndex: Int,
-): TextSelectionPoint? {
-    val textInstructions =
-        instructions.mapIndexedNotNull { index, instruction ->
-            instruction.selectionHitBounds()?.let { bounds ->
-                if (instruction.selectableTextLength() > 0) {
-                    Triple(index, instruction, bounds)
-                } else {
-                    null
-                }
-            }
-        }
-    if (textInstructions.isEmpty()) return null
-
-    val hit = findTextSelectionHit(instructions, position, nodeIndex)
-    if (hit != null) return hit
-
-    val sameLineInstructions = textInstructions.filter { (_, _, bounds) ->
-        position.y >= bounds.top && position.y <= bounds.bottom
-    }
-    if (sameLineInstructions.isNotEmpty()) {
-        val nearest =
-            sameLineInstructions.minBy { (_, _, bounds) ->
-                when {
-                    position.x < bounds.left -> bounds.left - position.x
-                    position.x > bounds.right -> position.x - bounds.right
-                    else -> 0f
-                }
-            }
-        return nearest.second.pointForPosition(nodeIndex, nearest.first, position)
-    }
-
-    val first = textInstructions.first()
-    val last = textInstructions.last()
-    if (position.y < first.third.top) {
-        return TextSelectionPoint(nodeIndex, first.first, 0)
-    }
-    if (position.y > last.third.bottom) {
-        return TextSelectionPoint(nodeIndex, last.first, last.second.selectableTextLength())
-    }
-
-    for (i in 0 until textInstructions.lastIndex) {
-        val current = textInstructions[i]
-        val next = textInstructions[i + 1]
-        val currentBottom = current.third.bottom
-        val nextTop = next.third.top
-        if (position.y > currentBottom && position.y < nextTop) {
-            val midpoint = (currentBottom + nextTop) / 2f
-            return if (position.y < midpoint) {
-                TextSelectionPoint(
-                    nodeIndex = nodeIndex,
-                    instructionIndex = current.first,
-                    offset = current.second.selectableTextLength(),
-                )
-            } else {
-                TextSelectionPoint(nodeIndex, next.first, 0)
-            }
-        }
-    }
-
-    return first.second.pointForPosition(nodeIndex, first.first, position)
-}
-
-internal fun createInitialSelection(
-    nodeIndex: Int,
-    instructionIndex: Int,
-    instruction: DrawInstruction,
-    offset: Int,
-): ActiveTextSelection {
-    val text =
-        when (instruction) {
-            is DrawInstruction.Text -> instruction.text
-            is DrawInstruction.TextLayout -> instruction.layout.text
-            is DrawInstruction.Line -> ""
-        }
-    if (text.isEmpty()) {
-        val point = TextSelectionPoint(nodeIndex, instructionIndex, 0)
-        return ActiveTextSelection(point, point)
-    }
-
-    if (instruction is DrawInstruction.Text) {
-        return ActiveTextSelection(
-            start = TextSelectionPoint(nodeIndex, instructionIndex, 0),
-            end = TextSelectionPoint(nodeIndex, instructionIndex, text.length),
-        )
-    }
-
-    if (instruction is DrawInstruction.TextLayout) {
-        val inlineCodeRange = inlineCodeRangeAt(text, offset)
-        if (inlineCodeRange != null) {
-            return ActiveTextSelection(
-                start = TextSelectionPoint(nodeIndex, instructionIndex, inlineCodeRange.start),
-                end = TextSelectionPoint(nodeIndex, instructionIndex, inlineCodeRange.end),
-            )
-        }
-    }
-
-    var anchor = offset.coerceIn(0, text.length)
-    if (anchor == text.length) {
-        anchor = (text.length - 1).coerceAtLeast(0)
-    }
-    if (text[anchor].isWhitespace() && anchor > 0) {
-        anchor--
-    }
-
-    var start = anchor
-    while (start > 0 && !text[start - 1].isWhitespace()) {
-        start--
-    }
-
-    var end = anchor + 1
-    while (end < text.length && !text[end].isWhitespace()) {
-        end++
-    }
-
-    return ActiveTextSelection(
-        start = TextSelectionPoint(nodeIndex, instructionIndex, start.coerceIn(0, text.length)),
-        end = TextSelectionPoint(nodeIndex, instructionIndex, end.coerceIn(0, text.length)),
-    )
-}
-
-private fun cursorLineRect(
-    instruction: DrawInstruction.TextLayout,
-    offset: Int,
-): android.graphics.RectF {
-    val layout = instruction.layout
-    val safeOffset = offset.coerceIn(0, layout.text.length)
-    val line = layout.getLineForOffset(safeOffset)
-    val x = instruction.x + layout.getPrimaryHorizontal(safeOffset)
-    val top = instruction.y + layout.getLineTop(line)
-    val bottom = instruction.y + layout.getLineBottom(line)
-    return android.graphics.RectF(x, top.toFloat(), x, bottom.toFloat())
-}
-
-private fun selectionHandleGapPx(handleRadiusPx: Float): Float = handleRadiusPx * 0.25f
-
-internal fun selectionHandleCenter(
-    instruction: DrawInstruction,
-    offset: Int,
-    handleRadiusPx: Float,
-): Offset {
-    val rect = instruction.cursorLineRect(offset) ?: android.graphics.RectF()
-    val centerY =
-        (rect.bottom + handleRadiusPx + selectionHandleGapPx(handleRadiusPx))
-            .coerceAtLeast(rect.top + handleRadiusPx)
-    return Offset(rect.left, centerY)
-}
-
-internal fun selectionHandleAt(
-    selection: ActiveTextSelection,
-    nodeIndex: Int,
-    instructions: List<DrawInstruction>,
-    position: Offset,
-    radiusPx: Float,
-    handleRadiusPx: Float,
-): TextSelectionHandle? {
-    val startInstruction =
-        if (selection.start.nodeIndex == nodeIndex) {
-            instructions.getOrNull(selection.start.instructionIndex)
-        } else {
-            null
-        }
-    val endInstruction =
-        if (selection.end.nodeIndex == nodeIndex) {
-            instructions.getOrNull(selection.end.instructionIndex)
-        } else {
-            null
-        }
-    val startDistance =
-        startInstruction?.let {
-            (position - selectionHandleCenter(it, selection.start.offset, handleRadiusPx)).getDistance()
-        }
-    val endDistance =
-        endInstruction?.let {
-            (position - selectionHandleCenter(it, selection.end.offset, handleRadiusPx)).getDistance()
-        }
-    return when {
-        startDistance != null &&
-            startDistance <= radiusPx &&
-            (endDistance == null || startDistance <= endDistance) -> TextSelectionHandle.START
-        endDistance != null && endDistance <= radiusPx -> TextSelectionHandle.END
-        else -> null
-    }
-}
-
-internal fun selectionVisualBounds(
-    instructions: List<DrawInstruction>,
-    selection: TextSelectionNodeSnapshot,
-    handleRadiusPx: Float,
-): android.graphics.RectF {
-    val bounds = android.graphics.RectF()
-
-    instructions.forEachIndexed { instructionIndex, instruction ->
-        val textLength = instruction.selectableTextLength()
-        if (textLength > 0) {
-            val range =
-                selectedRangeForInstruction(selection, instructionIndex, textLength)
-            if (range != null) {
-                val localBounds = instruction.selectedBounds(range)
-                if (localBounds != null && !localBounds.isEmpty) {
-                    if (bounds.isEmpty) {
-                        bounds.set(localBounds)
-                    } else {
-                        bounds.union(localBounds)
-                    }
-                }
-            }
-        }
-    }
-
-    if (bounds.isEmpty) {
-        val pointInstruction =
-            instructions.getOrNull(selection.start.instructionIndex)
-        if (pointInstruction != null) {
-            pointInstruction.cursorLineRect(selection.start.offset)?.let(bounds::set)
-        }
-    }
-
-    val startHandle = selection.startHandle
-    val startInstruction =
-        startHandle?.let { instructions.getOrNull(it.instructionIndex) }
-    if (startHandle != null && startInstruction != null) {
-        val startCenter = selectionHandleCenter(startInstruction, startHandle.offset, handleRadiusPx)
-        bounds.union(
-            startCenter.x - handleRadiusPx,
-            startCenter.y - handleRadiusPx,
-            startCenter.x + handleRadiusPx,
-            startCenter.y + handleRadiusPx,
-        )
-    }
-    val endHandle = selection.endHandle
-    val endInstruction =
-        endHandle?.let { instructions.getOrNull(it.instructionIndex) }
-    if (endHandle != null && endInstruction != null) {
-        val endCenter = selectionHandleCenter(endInstruction, endHandle.offset, handleRadiusPx)
-        bounds.union(
-            endCenter.x - handleRadiusPx,
-            endCenter.y - handleRadiusPx,
-            endCenter.x + handleRadiusPx,
-            endCenter.y + handleRadiusPx,
-        )
-    }
-    return bounds
-}
-
-private fun appendSelectedText(
-    builder: StringBuilder,
-    selectedText: CharSequence,
-    separator: TextCopySeparator,
-    previousBounds: android.graphics.RectF?,
-    currentBounds: android.graphics.RectF?,
-) {
-    if (selectedText.isEmpty()) return
-
-    if (builder.isNotEmpty()) {
-        when (separator) {
-            TextCopySeparator.NONE -> Unit
-            TextCopySeparator.SPACE -> {
-                if (!builder.last().isWhitespace() && !selectedText.first().isWhitespace()) {
-                    builder.append(' ')
-                }
-            }
-            TextCopySeparator.TAB -> builder.append('\t')
-            TextCopySeparator.NEWLINE -> builder.append('\n')
-            TextCopySeparator.AUTO -> {
-                val isSameLine =
-                    previousBounds != null &&
-                        currentBounds != null &&
-                        maxOf(previousBounds.top, currentBounds.top) <= minOf(previousBounds.bottom, currentBounds.bottom)
-                if (isSameLine) {
-                    if (!builder.last().isWhitespace() && !selectedText.first().isWhitespace()) {
-                        builder.append(' ')
-                    }
-                } else {
-                    builder.append('\n')
-                }
-            }
-        }
-    }
-
-    builder.append(selectedText)
-}
-
-private data class SelectedInstructionText(
-    val instruction: DrawInstruction,
-    val range: TextSelectionRange,
-    val text: CharSequence,
-)
-
-private fun escapeMarkdownTableCell(text: CharSequence): String {
-    return text
-        .toString()
-        .replace("\r\n", "\n")
-        .replace('\r', '\n')
-        .replace("|", "\\|")
-        .replace("\n", "<br>")
-}
-
-private fun markdownTableText(selectedInstructions: List<SelectedInstructionText>): String? {
-    val cells =
-        selectedInstructions.mapNotNull { selected ->
-            val instruction = selected.instruction as? DrawInstruction.TextLayout
-            val info = instruction?.tableCellInfo
-            if (info == null) {
-                null
-            } else {
-                info to selected.text
-            }
-        }
-    if (cells.size != selectedInstructions.size || cells.isEmpty()) {
-        return null
-    }
-
-    val rowIndices = cells.map { it.first.rowIndex }
-    val columnIndices = cells.map { it.first.columnIndex }
-    val minRow = rowIndices.minOrNull() ?: return null
-    val maxRow = rowIndices.maxOrNull() ?: return null
-    val minColumn = columnIndices.minOrNull() ?: return null
-    val maxColumn = columnIndices.maxOrNull() ?: return null
-    val selectedByPosition =
-        cells.associate { (info, text) ->
-            (info.rowIndex to info.columnIndex) to escapeMarkdownTableCell(text)
-        }
-
-    fun appendTableRow(builder: StringBuilder, rowIndex: Int) {
-        builder.append('|')
-        for (columnIndex in minColumn..maxColumn) {
-            builder.append(' ')
-            builder.append(selectedByPosition[rowIndex to columnIndex] ?: "")
-            builder.append(" |")
-        }
-        builder.append('\n')
-    }
-
-    return buildString {
-        appendTableRow(this, minRow)
-        append('|')
-        for (columnIndex in minColumn..maxColumn) {
-            append(" --- |")
-        }
-        append('\n')
-        for (rowIndex in (minRow + 1)..maxRow) {
-            appendTableRow(this, rowIndex)
-        }
-    }.trimEnd()
-}
-
-private fun selectedText(
-    selection: ActiveTextSelection,
-    nodeIndex: Int,
-    instructions: List<DrawInstruction>,
-): String {
-    val selectedInstructions = mutableListOf<SelectedInstructionText>()
-    instructions.forEachIndexed { instructionIndex, instruction ->
-        val textLength = instruction.selectableTextLength()
-        if (textLength > 0) {
-            val range =
-                selectedRangeForInstruction(selection, nodeIndex, instructionIndex, textLength)
-            if (range != null) {
-                selectedInstructions +=
-                    SelectedInstructionText(
-                        instruction = instruction,
-                        range = range,
-                        text = instruction.selectedText(range),
-                    )
-            }
-        }
-    }
-
-    val tableText = markdownTableText(selectedInstructions)
-    if (tableText != null) {
-        return tableText
-    }
-
-    val builder = StringBuilder()
-    var previousBounds: android.graphics.RectF? = null
-    selectedInstructions.forEach { selected ->
-        val currentBounds =
-            selected.instruction.selectionHitBounds()
-                ?: selected.instruction.selectedBounds(selected.range)
-                ?: selected.instruction.selectionBounds()
-        appendSelectedText(
-            builder = builder,
-            selectedText = selected.text,
-            separator = selected.instruction.copySeparatorBefore(),
-            previousBounds = previousBounds,
-            currentBounds = currentBounds,
-        )
-        previousBounds = currentBounds
-    }
-    return builder.toString()
-}
-
-private fun drawCanvasTextSelectionHandleAtRect(
-    canvas: android.graphics.Canvas,
-    rect: android.graphics.RectF,
-    cursorPaint: android.graphics.Paint,
-    handlePaint: android.graphics.Paint,
-    handleRadiusPx: Float,
-) {
-    val handleCenterY =
-        (rect.bottom + handleRadiusPx + selectionHandleGapPx(handleRadiusPx))
-            .coerceAtLeast(rect.top + handleRadiusPx)
-    canvas.drawLine(rect.left, rect.top, rect.left, rect.bottom, cursorPaint)
-    canvas.drawCircle(rect.left, handleCenterY, handleRadiusPx, handlePaint)
-}
-
-internal fun drawCanvasTextSelectionHandle(
-    canvas: android.graphics.Canvas,
-    instruction: DrawInstruction,
-    offset: Int,
-    cursorPaint: android.graphics.Paint,
-    handlePaint: android.graphics.Paint,
-    handleRadiusPx: Float,
-) {
-    val rect = instruction.cursorLineRect(offset) ?: return
-    drawCanvasTextSelectionHandleAtRect(
-        canvas = canvas,
-        rect = rect,
-        cursorPaint = cursorPaint,
-        handlePaint = handlePaint,
-        handleRadiusPx = handleRadiusPx,
-    )
-}
-
-private fun drawCanvasTextSelectionHandle(
-    canvas: android.graphics.Canvas,
-    layout: StaticLayout,
-    offset: Int,
-    cursorPaint: android.graphics.Paint,
-    handlePaint: android.graphics.Paint,
-    handleRadiusPx: Float,
-) {
-    val safeOffset = offset.coerceIn(0, layout.text.length)
-    val line = layout.getLineForOffset(safeOffset)
-    val x = layout.getPrimaryHorizontal(safeOffset)
-    val top = layout.getLineTop(line).toFloat()
-    val bottom = layout.getLineBottom(line).toFloat()
-    drawCanvasTextSelectionHandleAtRect(
-        canvas = canvas,
-        rect = android.graphics.RectF(x, top, x, bottom),
-        cursorPaint = cursorPaint,
-        handlePaint = handlePaint,
-        handleRadiusPx = handleRadiusPx,
-    )
-}
-
-internal fun drawCanvasTextSelectionMagnifier(
-    canvas: android.graphics.Canvas,
-    layout: StaticLayout,
-    magnifier: TextSelectionMagnifier,
-    bubblePaint: android.graphics.Paint,
-    borderPaint: android.graphics.Paint,
-    textPaint: android.graphics.Paint,
-    cursorPaint: android.graphics.Paint,
-    bubbleWidthPx: Float,
-    bubbleHeightPx: Float,
-    marginPx: Float,
-) {
-    val text = layout.text
-    if (text.isEmpty()) return
-
-    val safeOffset = magnifier.point.offset.coerceIn(0, text.length)
-    val start = (safeOffset - 10).coerceAtLeast(0)
-    val end = (safeOffset + 10).coerceAtMost(text.length)
-    val preview = text.subSequence(start, end).toString().replace('\n', ' ')
-    val cursorInPreview = (safeOffset - start).coerceIn(0, preview.length)
-
-    val rect = android.graphics.RectF(0f, 0f, bubbleWidthPx, bubbleHeightPx)
-
-    canvas.drawRoundRect(rect, bubbleHeightPx / 2f, bubbleHeightPx / 2f, bubblePaint)
-    canvas.drawRoundRect(rect, bubbleHeightPx / 2f, bubbleHeightPx / 2f, borderPaint)
-
-    val textX = marginPx
-    val baseline = bubbleHeightPx / 2f - (textPaint.ascent() + textPaint.descent()) / 2f
-    canvas.save()
-    canvas.clipRect(marginPx, 0f, bubbleWidthPx - marginPx, bubbleHeightPx)
-    canvas.drawText(preview, textX, baseline, textPaint)
-    val cursorX = textX + textPaint.measureText(preview, 0, cursorInPreview)
-    canvas.drawLine(cursorX, marginPx, cursorX, bubbleHeightPx - marginPx, cursorPaint)
-    canvas.restore()
-}
-
-internal fun placementForToolbar(
-    selectionBounds: android.graphics.RectF,
-    toolbarWidthPx: Float,
-    toolbarHeightPx: Float,
-    canvasWidthPx: Float,
-    canvasHeightPx: Float,
-    gapPx: Float,
-    edgePaddingPx: Float,
-): IntOffset {
-    val maxX = (canvasWidthPx - toolbarWidthPx - edgePaddingPx).coerceAtLeast(edgePaddingPx)
-    val maxY = (canvasHeightPx - toolbarHeightPx - edgePaddingPx).coerceAtLeast(edgePaddingPx)
-    val centeredX = (selectionBounds.centerX() - toolbarWidthPx / 2f).coerceIn(edgePaddingPx, maxX)
-    val aboveY = selectionBounds.top - toolbarHeightPx - gapPx
-    val belowY = selectionBounds.bottom + gapPx
-    val rightX = selectionBounds.right + gapPx
-    val leftX = selectionBounds.left - toolbarWidthPx - gapPx
-    val sideY = (selectionBounds.centerY() - toolbarHeightPx / 2f).coerceIn(edgePaddingPx, maxY)
-    val (x, y) =
-        when {
-            aboveY >= edgePaddingPx -> centeredX to aboveY
-            belowY <= maxY -> centeredX to belowY
-            rightX <= maxX -> rightX to sideY
-            leftX >= edgePaddingPx -> leftX to sideY
-            selectionBounds.centerY() > canvasHeightPx / 2f -> centeredX to edgePaddingPx
-            else -> centeredX to maxY
-        }
-
-    return IntOffset(x.roundToInt(), y.roundToInt())
-}
-
 /**
  * Canvas 版本的 Markdown 节点渲染器
  * 
@@ -1494,8 +423,6 @@ internal fun CanvasMarkdownNodeRenderer(
     xmlStream: Stream<String>? = null,
     enableDialogs: Boolean = true,
     fillMaxWidth: Boolean = true,
-    textSelectionRequest: MarkdownTextSelectionRequest? = null,
-    selectionState: MarkdownCanvasTextSelectionState? = null,
     isLastNode: Boolean = false
 ) {
     
@@ -1557,8 +484,6 @@ internal fun CanvasMarkdownNodeRenderer(
         index = index,
         enableDialogs = enableDialogs,
         fillMaxWidth = fillMaxWidth,
-        textSelectionRequest = textSelectionRequest,
-        selectionState = selectionState,
         isLastNode = isLastNode
     )
 }
@@ -1599,8 +524,6 @@ private fun renderNodeContent(
     index: Int,
     enableDialogs: Boolean,
     fillMaxWidth: Boolean,
-    textSelectionRequest: MarkdownTextSelectionRequest?,
-    selectionState: MarkdownCanvasTextSelectionState?,
     isLastNode: Boolean = false
 ) {
     // 【关键优化】只要节点内容不变，就记住原始节点实例，防止不必要的重组
@@ -1626,9 +549,6 @@ private fun renderNodeContent(
                 modifier = modifier,
                 onLinkClick = onLinkClick,
                 fillMaxWidth = fillMaxWidth,
-                textSelectionRequest = textSelectionRequest,
-                selectionState = selectionState,
-                nodeIndex = index,
                 isLastNode = isLastNode
             )
         }
@@ -1649,9 +569,6 @@ private fun renderNodeContent(
                 modifier = modifier,
                 onLinkClick = onLinkClick,
                 fillMaxWidth = fillMaxWidth,
-                textSelectionRequest = textSelectionRequest,
-                selectionState = selectionState,
-                nodeIndex = index,
                 isLastNode = isLastNode
             )
         }
@@ -1685,10 +602,7 @@ private fun renderNodeContent(
             EnhancedCodeBlock(
                 code = codeContent,
                 language = language,
-                modifier = Modifier.fillMaxWidth(),
-                textSelectionRequest = textSelectionRequest,
-                selectionState = selectionState,
-                nodeIndex = index,
+                modifier = Modifier.fillMaxWidth()
             )
         }
         
@@ -1698,10 +612,7 @@ private fun renderNodeContent(
             EnhancedTableBlock(
                 tableContent = content,
                 textColor = textColor,
-                modifier = Modifier.fillMaxWidth(),
-                textSelectionRequest = textSelectionRequest,
-                selectionState = selectionState,
-                nodeIndex = index,
+                modifier = Modifier.fillMaxWidth()
             )
         }
         
@@ -1722,25 +633,17 @@ private fun renderNodeContent(
                         )
                         .padding(4.dp)
                 ) {
-                    UnifiedCanvasRenderer(
-                        nodeKey = nodeKey,
-                        node = stableNode,
+                    val quoteText = content.lines().joinToString("\n") {
+                        it.removePrefix("> ").removePrefix(">")
+                    }
+
+                    SingleTextCanvas(
+                        text = quoteText,
                         textColor = textColor,
-                        bodyMediumSize = fontSizes.bodyMedium,
-                        headlineLargeSize = fontSizes.headlineLarge,
-                        headlineMediumSize = fontSizes.headlineMedium,
-                        headlineSmallSize = fontSizes.headlineSmall,
-                        titleLargeSize = fontSizes.titleLarge,
-                        titleMediumSize = fontSizes.titleMedium,
-                        titleSmallSize = fontSizes.titleSmall,
+                        fontSize = fontSizes.bodyMedium,
+                        fontWeight = FontWeight.Normal,
                         density = density,
-                        modifier = Modifier.fillMaxWidth(),
-                        onLinkClick = onLinkClick,
-                        fillMaxWidth = true,
-                        textSelectionRequest = textSelectionRequest,
-                        selectionState = selectionState,
-                        nodeIndex = index,
-                        isLastNode = isLastNode
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -1893,9 +796,6 @@ private fun UnifiedCanvasRenderer(
     modifier: Modifier = Modifier,
     onLinkClick: ((String) -> Unit)?,
     fillMaxWidth: Boolean = true,
-    textSelectionRequest: MarkdownTextSelectionRequest?,
-    selectionState: MarkdownCanvasTextSelectionState?,
-    nodeIndex: Int,
     isLastNode: Boolean = false
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
@@ -2019,7 +919,6 @@ private fun UnifiedCanvasRenderer(
                 accessibleText
             }
         }
-        val currentSelectionState = selectionState ?: remember(nodeKey) { MarkdownCanvasTextSelectionState() }
         val maxHeightPx = minOf(MAX_CANVAS_HEIGHT_PX, MAX_COMPOSE_CONSTRAINT_HEIGHT_PX)
         val clampedHeightDp = with(localDensity) {
             layoutResult.height.coerceIn(0f, maxHeightPx).toDp()
@@ -2039,157 +938,6 @@ private fun UnifiedCanvasRenderer(
                 .semantics {
                     contentDescription = safeAccessibleText
                 }
-
-        val autoScrollController = LocalMarkdownTextSelectionAutoScrollController.current
-        var canvasBoundsInWindow by remember { mutableStateOf<Rect?>(null) }
-        var toolbarSize by remember(nodeKey) { mutableStateOf(IntSize.Zero) }
-        val clipboardManager = LocalClipboardManager.current
-        val context = LocalContext.current
-        val selectionColor = MaterialTheme.colorScheme.primary
-        val selectionPaint = remember(selectionColor) {
-            android.graphics.Paint().apply {
-                color = selectionColor.copy(alpha = 0.24f).toArgb()
-                style = android.graphics.Paint.Style.FILL
-                isAntiAlias = true
-            }
-        }
-        val cursorPaint = remember(selectionColor, localDensity) {
-            android.graphics.Paint().apply {
-                color = selectionColor.toArgb()
-                style = android.graphics.Paint.Style.STROKE
-                strokeWidth = with(localDensity) { 2.dp.toPx() }
-                strokeCap = android.graphics.Paint.Cap.ROUND
-                isAntiAlias = true
-            }
-        }
-        val handlePaint = remember(selectionColor) {
-            android.graphics.Paint().apply {
-                color = selectionColor.toArgb()
-                style = android.graphics.Paint.Style.FILL
-                isAntiAlias = true
-            }
-        }
-        val handleRadiusPx = with(localDensity) { 7.dp.toPx() }
-        val handleTouchRadiusPx = with(localDensity) { 38.dp.toPx() }
-        val magnifierSurfaceColor = MaterialTheme.colorScheme.surface
-        val magnifierTextColor = MaterialTheme.colorScheme.onSurface
-        val magnifierBubblePaint = remember(magnifierSurfaceColor) {
-            android.graphics.Paint().apply {
-                color = magnifierSurfaceColor.copy(alpha = 0.96f).toArgb()
-                style = android.graphics.Paint.Style.FILL
-                isAntiAlias = true
-            }
-        }
-        val magnifierBorderPaint = remember(selectionColor, localDensity) {
-            android.graphics.Paint().apply {
-                color = selectionColor.copy(alpha = 0.45f).toArgb()
-                style = android.graphics.Paint.Style.STROKE
-                strokeWidth = with(localDensity) { 1.dp.toPx() }
-                isAntiAlias = true
-            }
-        }
-        val magnifierTextPaint = remember(magnifierTextColor, localDensity) {
-            android.graphics.Paint().apply {
-                color = magnifierTextColor.toArgb()
-                textSize = with(localDensity) { 17.sp.toPx() }
-                isAntiAlias = true
-                typeface = normalTypeface
-            }
-        }
-        val magnifierWidthDp = 164.dp
-        val magnifierHeightDp = 48.dp
-        val magnifierMarginDp = 8.dp
-        val magnifierWidthPx = with(localDensity) { magnifierWidthDp.toPx() }
-        val magnifierHeightPx = with(localDensity) { magnifierHeightDp.toPx() }
-        val magnifierMarginPx = with(localDensity) { magnifierMarginDp.toPx() }
-        val toolbarGapPx = with(localDensity) { 6.dp.toPx() }
-        val toolbarEdgePaddingPx = with(localDensity) { 6.dp.toPx() }
-        val toolbarEstimatedWidthPx = with(localDensity) { 96.dp.toPx() }
-        val toolbarEstimatedHeightPx = with(localDensity) { 30.dp.toPx() }
-        val nodeSelectionState =
-            remember(currentSelectionState, nodeIndex, layoutResult.instructions) {
-                derivedStateOf {
-                    currentSelectionState.selection?.let { selection ->
-                        nodeSelectionSnapshot(
-                            selection = selection,
-                            nodeIndex = nodeIndex,
-                            instructions = layoutResult.instructions,
-                        )
-                    }
-                }
-            }
-        val toolbarSelectionState =
-            remember(currentSelectionState, nodeIndex, layoutResult.instructions) {
-                derivedStateOf {
-                    val selection = currentSelectionState.selection
-                    if (selection == null || compareSelectionPoints(selection.start, selection.end) == 0) {
-                        null
-                    } else {
-                        val orderedStart = orderedSelectionPoints(selection).first
-                        if (orderedStart.nodeIndex == nodeIndex) {
-                            nodeSelectionSnapshot(
-                                selection = selection,
-                                nodeIndex = nodeIndex,
-                                instructions = layoutResult.instructions,
-                            )
-                        } else {
-                            null
-                        }
-                    }
-                }
-            }
-        val nodeMagnifierState =
-            remember(currentSelectionState, nodeIndex) {
-                derivedStateOf {
-                    currentSelectionState.dragMagnifier?.takeIf { it.hostNodeIndex == nodeIndex }
-                }
-            }
-        val nodeSelection = nodeSelectionState.value
-        val toolbarNodeSelection = toolbarSelectionState.value
-        val nodeMagnifier = nodeMagnifierState.value
-
-        LaunchedEffect(canvasBoundsInWindow, layoutResult.instructions) {
-            val bounds = canvasBoundsInWindow ?: return@LaunchedEffect
-            currentSelectionState.updateNodeLayout(
-                nodeIndex = nodeIndex,
-                boundsInWindow = bounds,
-                instructions = layoutResult.instructions,
-            )
-        }
-
-        LaunchedEffect(textSelectionRequest?.id, canvasBoundsInWindow) {
-            val request = textSelectionRequest
-            if (request == null) {
-                currentSelectionState.clear()
-                return@LaunchedEffect
-            }
-            if (currentSelectionState.handledRequestId == request.id) {
-                return@LaunchedEffect
-            }
-            val bounds = canvasBoundsInWindow ?: return@LaunchedEffect
-            if (!bounds.containsOffset(request.positionInWindow)) {
-                currentSelectionState.dragMagnifier = null
-                return@LaunchedEffect
-            }
-
-            val localPosition =
-                request.positionInWindow - Offset(bounds.left, bounds.top)
-            val hit = findTextSelectionHit(layoutResult.instructions, localPosition, nodeIndex)
-            val instruction = hit?.let { layoutResult.instructions.getOrNull(it.instructionIndex) }
-            currentSelectionState.handledRequestId = request.id
-            if (hit != null && instruction != null && instruction.selectableTextLength() > 0) {
-                currentSelectionState.selection =
-                    createInitialSelection(
-                        nodeIndex = nodeIndex,
-                        instructionIndex = hit.instructionIndex,
-                        instruction = instruction,
-                        offset = hit.offset,
-                    )
-            } else {
-                currentSelectionState.selection = null
-                currentSelectionState.dragMagnifier = null
-            }
-        }
         
         // 使用单个 Canvas 绘制所有内容
         SafeMeasureOrFallback(
@@ -2203,141 +951,14 @@ private fun UnifiedCanvasRenderer(
                 )
             }
         ) {
-            Box {
-                Canvas(
-                modifier = canvasModifier
-                    .onGloballyPositioned { coordinates ->
-                        canvasBoundsInWindow = coordinates.boundsInWindow()
-                    }
-                    .pointerInput(layoutResult.instructions, onLinkClick, currentSelectionState) {
+            Canvas(
+                modifier = canvasModifier.pointerInput(layoutResult.instructions, onLinkClick) {
                     awaitEachGesture {
-                        val down = awaitPointerEvent(PointerEventPass.Main).changes.first()
+                        val down = awaitPointerEvent(PointerEventPass.Initial).changes.first()
                         val downTime = System.currentTimeMillis()
                         val downPosition = down.position
-                        val selection = currentSelectionState.selection
-                        val activeHandle =
-                            if (selection != null) {
-                                selectionHandleAt(
-                                    selection = selection,
-                                    nodeIndex = nodeIndex,
-                                    instructions = layoutResult.instructions,
-                                    position = downPosition,
-                                    radiusPx = handleTouchRadiusPx,
-                                    handleRadiusPx = handleRadiusPx,
-                                )
-                            } else {
-                                null
-                            }
 
-                        if (activeHandle != null && selection != null) {
-                            down.consume()
-                            val downPositionInWindow =
-                                canvasBoundsInWindow?.let { bounds ->
-                                    Offset(
-                                        x = bounds.left + downPosition.x,
-                                        y = bounds.top + downPosition.y,
-                                    )
-                                } ?: downPosition
-                            val initialPoint =
-                                when (activeHandle) {
-                                    TextSelectionHandle.START -> selection.start
-                                    TextSelectionHandle.END -> selection.end
-                                }
-                            currentSelectionState.dragMagnifier =
-                                TextSelectionMagnifier(
-                                    hostNodeIndex = nodeIndex,
-                                    handle = activeHandle,
-                                    position = downPosition,
-                                    positionInWindow = downPositionInWindow,
-                                    point = initialPoint,
-                                )
-                            autoScrollController?.reset()
-                            try {
-                                while (true) {
-                                    val event =
-                                        withTimeoutOrNull(16L) {
-                                            awaitPointerEvent(PointerEventPass.Main)
-                                        }
-                                    if (event != null) {
-                                        val change = event.changes.firstOrNull() ?: break
-                                        if (!change.pressed) break
-                                        val changePositionInWindow =
-                                            canvasBoundsInWindow?.let { bounds ->
-                                                Offset(
-                                                    x = bounds.left + change.position.x,
-                                                    y = bounds.top + change.position.y,
-                                                )
-                                            } ?: change.position
-                                        val currentMagnifier = currentSelectionState.dragMagnifier
-                                        if (currentMagnifier?.hostNodeIndex == nodeIndex) {
-                                            currentSelectionState.dragMagnifier =
-                                                currentMagnifier.copy(
-                                                    position = change.position,
-                                                    positionInWindow = changePositionInWindow,
-                                                )
-                                        }
-                                        val point =
-                                            currentSelectionState.findPointInWindow(changePositionInWindow)
-                                        if (point != null) {
-                                            val currentSelection = currentSelectionState.selection ?: selection
-                                            val updatedSelection =
-                                                when (activeHandle) {
-                                                    TextSelectionHandle.START -> currentSelection.copy(start = point)
-                                                    TextSelectionHandle.END -> currentSelection.copy(end = point)
-                                                }
-                                            if (updatedSelection != currentSelection) {
-                                                currentSelectionState.selection = updatedSelection
-                                            }
-                                            currentSelectionState.dragMagnifier =
-                                                TextSelectionMagnifier(
-                                                    hostNodeIndex = nodeIndex,
-                                                    handle = activeHandle,
-                                                    position = change.position,
-                                                    positionInWindow = changePositionInWindow,
-                                                    point = point,
-                                                )
-                                        }
-                                        change.consume()
-                                    }
-
-                                    val magnifier = currentSelectionState.dragMagnifier
-                                    if (magnifier?.hostNodeIndex != nodeIndex) break
-                                    val controller = autoScrollController
-                                    if (controller != null && controller.scrollByEdge(magnifier.positionInWindow)) {
-                                        val point = currentSelectionState.findPointInWindow(magnifier.positionInWindow)
-                                        val currentSelection = currentSelectionState.selection ?: selection
-                                        if (point != null) {
-                                            val updatedSelection =
-                                                when (magnifier.handle) {
-                                                    TextSelectionHandle.START -> currentSelection.copy(start = point)
-                                                    TextSelectionHandle.END -> currentSelection.copy(end = point)
-                                                }
-                                            if (updatedSelection != currentSelection) {
-                                                currentSelectionState.selection = updatedSelection
-                                            }
-                                            val bounds = canvasBoundsInWindow
-                                            val localPosition =
-                                                if (bounds != null) {
-                                                    magnifier.positionInWindow - Offset(bounds.left, bounds.top)
-                                                } else {
-                                                    magnifier.position
-                                                }
-                                            currentSelectionState.dragMagnifier =
-                                                magnifier.copy(
-                                                    position = localPosition,
-                                                    point = point,
-                                                )
-                                        }
-                                    }
-                                }
-                            } finally {
-                                autoScrollController?.reset()
-                                currentSelectionState.dragMagnifier = null
-                            }
-                            return@awaitEachGesture
-                        }
-
-                        val up = awaitPointerEvent(PointerEventPass.Main).changes.first()
+                        val up = awaitPointerEvent(PointerEventPass.Initial).changes.first()
                         val upTime = System.currentTimeMillis()
                         val upPosition = up.position
 
@@ -2384,10 +1005,9 @@ private fun UnifiedCanvasRenderer(
                     // 获取可见区域（屏幕内区域）
                     val clipBounds = android.graphics.Rect()
                     canvas.nativeCanvas.getClipBounds(clipBounds)
-                    val selectionPath = android.graphics.Path()
 
                     // 只绘制在可见区域内的指令
-                    layoutResult.instructions.forEachIndexed { instructionIndex, instruction ->
+                    layoutResult.instructions.forEach { instruction ->
                         when (instruction) {
                             is DrawInstruction.Text -> {
                                 // 判断文本是否在可见区域内
@@ -2395,55 +1015,12 @@ private fun UnifiedCanvasRenderer(
                                 val textBottom = instruction.y + instruction.paint.descent()
 
                                 if (textBottom >= clipBounds.top && textTop <= clipBounds.bottom) {
-                                    val selectionForInstruction = nodeSelection
-                                    val selectionRange =
-                                        selectionForInstruction?.let {
-                                            selectedRangeForInstruction(
-                                                selection = it,
-                                                instructionIndex = instructionIndex,
-                                                textLength = instruction.text.length,
-                                            )
-                                        }
-                                    if (selectionRange != null) {
-                                        val selectedBounds = instruction.selectedBounds(selectionRange)
-                                        if (selectedBounds != null && !selectedBounds.isEmpty) {
-                                            canvas.nativeCanvas.drawRect(selectedBounds, selectionPaint)
-                                        }
-                                    }
                                     canvas.nativeCanvas.drawText(
                                         instruction.text,
                                         instruction.x,
                                         instruction.y,
                                         instruction.paint
                                     )
-                                    val selectionStartPoint = selectionForInstruction?.startHandle
-                                    if (
-                                        selectionStartPoint != null &&
-                                            selectionStartPoint.instructionIndex == instructionIndex
-                                    ) {
-                                        drawCanvasTextSelectionHandle(
-                                            canvas = canvas.nativeCanvas,
-                                            instruction = instruction,
-                                            offset = selectionStartPoint.offset,
-                                            cursorPaint = cursorPaint,
-                                            handlePaint = handlePaint,
-                                            handleRadiusPx = handleRadiusPx,
-                                        )
-                                    }
-                                    val selectionEndPoint = selectionForInstruction?.endHandle
-                                    if (
-                                        selectionEndPoint != null &&
-                                            selectionEndPoint.instructionIndex == instructionIndex
-                                    ) {
-                                        drawCanvasTextSelectionHandle(
-                                            canvas = canvas.nativeCanvas,
-                                            instruction = instruction,
-                                            offset = selectionEndPoint.offset,
-                                            cursorPaint = cursorPaint,
-                                            handlePaint = handlePaint,
-                                            handleRadiusPx = handleRadiusPx,
-                                        )
-                                    }
                                 }
                             }
                             is DrawInstruction.Line -> {
@@ -2467,64 +1044,10 @@ private fun UnifiedCanvasRenderer(
                                 val layoutBottom = instruction.y + instruction.layout.height
 
                                 if (layoutBottom >= clipBounds.top && layoutTop <= clipBounds.bottom) {
-                                    val selectionForInstruction = nodeSelection
-                                    val selectionRange =
-                                        selectionForInstruction?.let {
-                                            selectedRangeForInstruction(
-                                                selection = it,
-                                                instructionIndex = instructionIndex,
-                                                textLength = instruction.layout.text.length,
-                                            )
-                                        }
-                                    val hasSelectionHandle =
-                                        selectionForInstruction?.let {
-                                            it.startHandle?.instructionIndex == instructionIndex ||
-                                                it.endHandle?.instructionIndex == instructionIndex
-                                        } == true
                                     canvas.nativeCanvas.save()
                                     canvas.nativeCanvas.translate(instruction.x, instruction.y)
 
-                                    if (selectionRange != null || hasSelectionHandle) {
-                                        drawInlineCodeBackgrounds(instruction.layout, canvas.nativeCanvas)
-                                        if (selectionRange != null) {
-                                            selectionPath.reset()
-                                            instruction.layout.getSelectionPath(
-                                                selectionRange.start,
-                                                selectionRange.end,
-                                                selectionPath,
-                                            )
-                                            canvas.nativeCanvas.drawPath(selectionPath, selectionPaint)
-                                        }
-                                        instruction.layout.draw(canvas.nativeCanvas)
-                                        val selectionStartPoint = selectionForInstruction?.startHandle
-                                        if (
-                                            selectionStartPoint != null &&
-                                                selectionStartPoint.instructionIndex == instructionIndex
-                                        ) {
-                                            drawCanvasTextSelectionHandle(
-                                                canvas = canvas.nativeCanvas,
-                                                layout = instruction.layout,
-                                                offset = selectionStartPoint.offset,
-                                                cursorPaint = cursorPaint,
-                                                handlePaint = handlePaint,
-                                                handleRadiusPx = handleRadiusPx,
-                                            )
-                                        }
-                                        val selectionEndPoint = selectionForInstruction?.endHandle
-                                        if (
-                                            selectionEndPoint != null &&
-                                                selectionEndPoint.instructionIndex == instructionIndex
-                                        ) {
-                                            drawCanvasTextSelectionHandle(
-                                                canvas = canvas.nativeCanvas,
-                                                layout = instruction.layout,
-                                                offset = selectionEndPoint.offset,
-                                                cursorPaint = cursorPaint,
-                                                handlePaint = handlePaint,
-                                                handleRadiusPx = handleRadiusPx,
-                                            )
-                                        }
-                                    } else if (shouldAnimateTypewriter && revealInstruction === instruction && targetLength > 0 && baseLen < targetLength) {
+                                    if (shouldAnimateTypewriter && revealInstruction === instruction && targetLength > 0 && baseLen < targetLength) {
                                         val layout = instruction.layout
 
                                         val offsetForLine = baseLen.coerceIn(0, (targetLength - 1).coerceAtLeast(0))
@@ -2595,136 +1118,6 @@ private fun UnifiedCanvasRenderer(
                                     }
                                     canvas.nativeCanvas.restore()
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-                val magnifier = nodeMagnifier
-                val magnifierInstruction =
-                    magnifier?.let {
-                        currentSelectionState.textLayoutForPoint(it.point)
-                    }
-                if (magnifier != null && magnifierInstruction != null) {
-                    Popup(
-                        alignment = Alignment.TopStart,
-                        offset =
-                            IntOffset(
-                                x = (magnifier.position.x - magnifierWidthPx / 2f).roundToInt(),
-                                y = (magnifier.position.y - magnifierHeightPx - magnifierMarginPx * 3f).roundToInt(),
-                            ),
-                        properties =
-                            PopupProperties(
-                                focusable = false,
-                                clippingEnabled = false,
-                            ),
-                    ) {
-                        Canvas(
-                            modifier = Modifier.size(magnifierWidthDp, magnifierHeightDp)
-                        ) {
-                            drawIntoCanvas { canvas ->
-                                drawCanvasTextSelectionMagnifier(
-                                    canvas = canvas.nativeCanvas,
-                                    layout = magnifierInstruction.layout,
-                                    magnifier = magnifier,
-                                    bubblePaint = magnifierBubblePaint,
-                                    borderPaint = magnifierBorderPaint,
-                                    textPaint = magnifierTextPaint,
-                                    cursorPaint = cursorPaint,
-                                    bubbleWidthPx = size.width,
-                                    bubbleHeightPx = size.height,
-                                    marginPx = magnifierMarginPx,
-                                )
-                            }
-                        }
-                    }
-                }
-                if (toolbarNodeSelection != null) {
-                    val selectionBounds = selectionVisualBounds(
-                        instructions = layoutResult.instructions,
-                        selection = toolbarNodeSelection,
-                        handleRadiusPx = handleRadiusPx,
-                    )
-                    Surface(
-                        modifier =
-                            Modifier
-                                .offset {
-                                    val toolbarWidthPx =
-                                        if (toolbarSize.width > 0) toolbarSize.width.toFloat() else toolbarEstimatedWidthPx
-                                    val toolbarHeightPx =
-                                        if (toolbarSize.height > 0) toolbarSize.height.toFloat() else toolbarEstimatedHeightPx
-                                    placementForToolbar(
-                                        selectionBounds = selectionBounds,
-                                        toolbarWidthPx = toolbarWidthPx,
-                                        toolbarHeightPx = toolbarHeightPx,
-                                        canvasWidthPx = canvasBoundsInWindow?.width ?: layoutResult.actualWidth,
-                                        canvasHeightPx = with(localDensity) { clampedHeightDp.toPx() },
-                                        gapPx = toolbarGapPx,
-                                        edgePaddingPx = toolbarEdgePaddingPx,
-                                    )
-                                }
-                                .onGloballyPositioned { coordinates ->
-                                    toolbarSize = coordinates.size
-                                },
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
-                        tonalElevation = 3.dp,
-                        shadowElevation = 4.dp,
-                    ) {
-                        Row(
-                            modifier =
-                                Modifier
-                                    .height(30.dp)
-                                    .padding(horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .height(24.dp)
-                                        .clickable {
-                                            clipboardManager.setText(AnnotatedString(currentSelectionState.selectedText()))
-                                            currentSelectionState.dismissSelection()
-                                            Toast.makeText(
-                                                context,
-                                                context.getString(R.string.message_copied_to_clipboard),
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
-                                        }
-                                        .padding(horizontal = 9.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = context.getString(R.string.copy),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                )
-                            }
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .height(18.dp)
-                                        .width(1.dp)
-                                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
-                            )
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .height(24.dp)
-                                        .clickable {
-                                            currentSelectionState.dismissSelection()
-                                        }
-                                        .padding(horizontal = 9.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = context.getString(R.string.done),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                )
                             }
                         }
                     }
@@ -2903,7 +1296,6 @@ private fun calculateLayout(
                     x = startPadding,
                     y = markerY,
                     paint = boldPaint,
-                    copySeparatorBefore = TextCopySeparator.NONE,
                 )
             )
             
@@ -2949,7 +1341,6 @@ private fun calculateLayout(
                     x = contentX,
                     y = currentY,
                     text = layout.text,
-                    copySeparatorBefore = TextCopySeparator.SPACE,
                 )
             )
             currentY += layout.height
@@ -3030,7 +1421,6 @@ private fun calculateLayout(
                     x = startPadding,
                     y = markerY,
                     paint = markerPaint,
-                    copySeparatorBefore = TextCopySeparator.NONE,
                 )
             )
             instructions.add(
@@ -3039,7 +1429,6 @@ private fun calculateLayout(
                     x = contentX,
                     y = currentY,
                     text = layout.text,
-                    copySeparatorBefore = TextCopySeparator.SPACE,
                 )
             )
             currentY += layout.height
@@ -3136,31 +1525,6 @@ private fun calculateLayout(
             }
         }
 
-        MarkdownProcessorType.BLOCK_QUOTE -> {
-            val quoteText = stripBlockQuoteMarkers(content)
-            if (quoteText.trimAll().isEmpty()) return LayoutResult(0f, 0f, emptyList())
-
-            val textSizePx = with(density) { bodyMediumSize.toPx() }
-            val textPaint = PaintCache.getTextPaint(
-                textColor,
-                textSizePx,
-                normalTypeface,
-                calculateCanvasLetterSpacingEm(bodyMediumSize, globalLetterSpacingSp)
-            )
-            val layout = LayoutCache.getLayout(
-                quoteText,
-                textPaint,
-                safeAvailableWidthPx,
-                textColor,
-                normalTypeface,
-                lineSpacingMultiplier
-            )
-
-            instructions.add(DrawInstruction.TextLayout(layout, 0f, currentY, layout.text))
-            currentY += layout.height
-            maxWidth = maxOf(maxWidth, calculateActualWidth(layout, 0f, safeAvailableWidthPx))
-        }
-        
         else -> {
             // 其他类型暂不处理
         }

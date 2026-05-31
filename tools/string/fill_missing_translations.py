@@ -52,6 +52,7 @@ PAIRED_SINGLE_QUOTE_RE = re.compile(r"(?<![\\\w])'([^'\n]+)'(?!\w)")
 LANGUAGE_NAME_MAP = {
     "zh": "Simplified Chinese",
     "en": "English",
+    "ko": "Korean",
     "es": "Spanish",
     "pt-BR": "Portuguese (Brazil)",
     "ms": "Malay",
@@ -61,6 +62,7 @@ LANGUAGE_NAME_MAP = {
 LANGUAGE_DIR_OVERRIDES = {
     "zh": "values",
     "en": "values-en",
+    "ko": "values-ko",
     "es": "values-es",
     "pt-BR": "values-pt-rBR",
     "pt-br": "values-pt-rBR",

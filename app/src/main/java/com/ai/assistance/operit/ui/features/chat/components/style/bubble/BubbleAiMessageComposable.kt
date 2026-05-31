@@ -30,7 +30,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.ai.assistance.operit.data.model.ChatMessage
-import com.ai.assistance.operit.ui.common.markdown.MarkdownTextSelectionRequest
 import com.ai.assistance.operit.ui.common.markdown.StreamMarkdownRenderer
 import com.ai.assistance.operit.ui.common.markdown.StreamMarkdownRendererState
 import com.ai.assistance.operit.ui.features.chat.components.ChatMessageHeightMemory
@@ -93,7 +92,6 @@ fun BubbleAiMessageComposable(
     heightMemory: ChatMessageHeightMemory? = null,
     enableDialogs: Boolean = true,
     onAvatarLongPressMention: ((String) -> Unit)? = null,
-    textSelectionRequest: MarkdownTextSelectionRequest? = null,
 ) {
     val context = LocalContext.current
     val preferencesManager = remember { UserPreferencesManager.getInstance(context) }
@@ -397,7 +395,6 @@ fun BubbleAiMessageComposable(
                                     ),
                                     state = rendererState,
                                     fillMaxWidth = shouldUseExpandedBubbleLayout,
-                                    textSelectionRequest = textSelectionRequest,
                                 )
                             } else {
                                 StreamMarkdownRenderer(
@@ -417,7 +414,6 @@ fun BubbleAiMessageComposable(
                                     ),
                                     state = rendererState,
                                     fillMaxWidth = shouldUseExpandedBubbleLayout,
-                                    textSelectionRequest = textSelectionRequest,
                                 )
                             }
                         }
@@ -606,7 +602,6 @@ fun BubbleAiMessageComposable(
                                     ),
                                     state = rendererState,
                                     fillMaxWidth = shouldUseExpandedBubbleLayout,
-                                    textSelectionRequest = textSelectionRequest,
                                 )
                             } else {
                                 // 对于已完成的静态消息，使用 content 参数的渲染器以支持Markdown
@@ -628,7 +623,6 @@ fun BubbleAiMessageComposable(
                                     ),
                                     state = rendererState,
                                     fillMaxWidth = shouldUseExpandedBubbleLayout,
-                                    textSelectionRequest = textSelectionRequest,
                                 )
                             }
                         }

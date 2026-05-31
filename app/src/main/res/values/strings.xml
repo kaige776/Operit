@@ -993,10 +993,12 @@
     <string name="package_import_success">成功导入包</string>
     <string name="package_import_error">导入包失败</string>
     <string name="no_packages_available">没有可用的包</string>
+    <string name="no_plugins_available">暂无可用插件</string>
     <string name="no_packages_imported">尚未导入任何包</string>
     <string name="remove_package">移除包</string>
     <string name="package_removed">包已移除</string>
     <string name="import_external_package">导入外部包</string>
+    <string name="import_external_plugin">导入外部插件</string>
     <string name="external_package_import_success">成功导入外部包</string>
     <string name="external_package_import_error">导入外部包失败</string>
     <string name="only_hjson_supported">仅支持HJSON格式文件</string>
@@ -1009,6 +1011,11 @@
     <string name="open_file_manager">打开文件管理器</string>
     <string name="navigate_to_external_files">请导航到Android/data/com.ai.assistance.operit/files/packages目录</string>
     <string name="package_js_only">仅支持 JavaScript(.js) 和 ToolPkg(.toolpkg) 文件</string>
+    <string name="package_script_only">仅支持 HJSON(.hjson)、JavaScript(.js) 和 TypeScript(.ts) 文件</string>
+    <string name="plugin_toolpkg_only">仅支持 ToolPkg(.toolpkg) 文件</string>
+    <string name="plugin_enable_failed">插件启用失败</string>
+    <string name="plugin_disable_failed">插件禁用失败</string>
+    <string name="plugin_subpackage_count">子包数：%1$d</string>
     <string name="pkg_toolpkg_subpackages">ToolPkg 子包</string>
     <string name="pkg_toolpkg_version">版本：%1$s</string>
     <string name="pkg_toolpkg_resources">资源数：%1$d</string>
@@ -1559,7 +1566,6 @@
 
     <!-- Context Menu -->
     <string name="copy_message">复制消息</string>
-    <string name="copy_full_message">全部复制</string>
     <string name="chat_hidden_user_message_placeholder">自动触发用户消息（内容已隐藏）</string>
     <string name="chat_hidden_user_message_badge">自动触发</string>
     <string name="info">信息</string>
@@ -1582,7 +1588,7 @@
     <string name="stop_reading">停止朗读</string>
     <string name="edit_and_resend">编辑并重发</string>
     <string name="rollback_to_here">回滚到此处</string>
-    <string name="select_copy">选择复制</string>
+    <string name="select_copy">选择并复制</string>
     <string name="insert_summary">插入总结</string>
     <string name="create_branch">创建分支</string>
     <string name="branch">分支</string>
@@ -4200,9 +4206,11 @@
     <string name="no_matching_skills_found">未找到匹配的 Skill</string>
     <string name="no_matching_scripts_found">未找到匹配的脚本</string>
     <string name="no_matching_packages_found">未找到匹配的工具包</string>
-    <string name="skill_market_search_placeholder">搜索 Skill 或作者</string>
+    <string name="skill_market_search_placeholder">搜索技能</string>
     <string name="script_market_search_placeholder">搜索脚本名称、描述、作者...</string>
-    <string name="package_market_search_placeholder">搜索工具包名称、描述、作者...</string>
+    <string name="plugin_market_search_placeholder">搜索插件</string>
+    <string name="package_market_search_placeholder">搜索包</string>
+    <string name="mcp_market_search_placeholder">搜索 MCP</string>
     <string name="skill_repo_url_not_found">未找到仓库地址</string>
     <string name="skill_repo_url_not_found_cannot_install">未找到仓库地址，无法安装</string>
     <string name="no_available_mcp_plugins">暂无可用的 MCP 插件</string>

@@ -12,7 +12,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.ai.assistance.operit.ui.common.markdown.StreamMarkdownRendererState
-import com.ai.assistance.operit.ui.common.markdown.MarkdownTextSelectionRequest
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -53,7 +52,6 @@ fun AiMessageComposable(
     overrideStream: Stream<String>? = null,
     heightMemory: ChatMessageHeightMemory? = null,
     enableDialogs: Boolean = true,  // 新增参数：是否启用弹窗功能，默认启用
-    textSelectionRequest: MarkdownTextSelectionRequest? = null,
 ) {
     val context = LocalContext.current
     val preferencesManager = remember { UserPreferencesManager.getInstance(context) }
@@ -194,7 +192,6 @@ fun AiMessageComposable(
                     enableDialogs = enableDialogs,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     state = rendererState,
-                    textSelectionRequest = textSelectionRequest,
                 )
             } else {
                 // 对于已完成的静态消息，使用新的字符串渲染器以提高性能
@@ -209,7 +206,6 @@ fun AiMessageComposable(
                     enableDialogs = enableDialogs,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     state = rendererState,
-                    textSelectionRequest = textSelectionRequest,
                 )
             }
         }

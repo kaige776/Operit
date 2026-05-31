@@ -372,7 +372,7 @@ fun OperitApp(
     // Main app container
     Box(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
         DisposableEffect(packageManager) {
-            val listener = PackageManager.ToolPkgRuntimeChangeListener {
+            val listener = PackageManager.ToolPkgRuntimeChangeListener { _ ->
                 navigationRevision += 1
             }
             packageManager.addToolPkgRuntimeChangeListener(listener)

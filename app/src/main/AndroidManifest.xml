@@ -85,6 +85,7 @@
         android:resizeableActivity="true"
         android:roundIcon="@mipmap/ic_launcher_simple_round"
         android:supportsRtl="true"
+        android:localeConfig="@xml/locales_config"
         android:theme="@style/Theme.Operit"
         android:requestLegacyExternalStorage="true"
         android:enableOnBackInvokedCallback="true"

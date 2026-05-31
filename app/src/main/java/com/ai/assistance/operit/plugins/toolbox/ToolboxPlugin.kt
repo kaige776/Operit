@@ -138,8 +138,8 @@ object ToolboxPlugin : OperitPlugin {
     private val installed = AtomicBoolean(false)
     private val replayScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val runtimeChangeListener =
-        PackageManager.ToolPkgRuntimeChangeListener {
-            syncAndReplayToolPkgLifecycleHooks()
+        PackageManager.ToolPkgRuntimeChangeListener { activeContainers ->
+            syncAndReplayToolPkgLifecycleHooks(activeContainers)
         }
 
     override fun register() {
@@ -151,14 +151,13 @@ object ToolboxPlugin : OperitPlugin {
         val context = OperitApplication.instance.applicationContext
         val packageManager = PackageManager.getInstance(context, AIToolHandler.getInstance(context))
         packageManager.addToolPkgRuntimeChangeListener(runtimeChangeListener)
-        syncAndReplayToolPkgLifecycleHooks()
     }
 
-    private fun syncAndReplayToolPkgLifecycleHooks() {
-        val context = OperitApplication.instance.applicationContext
-        val packageManager = PackageManager.getInstance(context, AIToolHandler.getInstance(context))
+    private fun syncAndReplayToolPkgLifecycleHooks(
+        activeContainers: List<ToolPkgContainerRuntime>
+    ) {
         val hooksToReplayByEvent = ToolPkgAppLifecycleHookPlugin.syncToolPkgRegistrations(
-            packageManager.getEnabledToolPkgContainerRuntimes()
+            activeContainers
         )
         val replayEvents = AppLifecycleHookPluginRegistry.getReplayableApplicationEvents()
         if (hooksToReplayByEvent.isEmpty() || replayEvents.isEmpty()) {

@@ -22,8 +22,8 @@ internal object ToolPkgChatInputHookBridge {
     @Volatile
     private var hooks: List<ToolPkgChatInputHookRegistration> = emptyList()
     private val runtimeChangeListener =
-        PackageManager.ToolPkgRuntimeChangeListener {
-            syncToolPkgRegistrations(toolPkgPackageManager().getEnabledToolPkgContainerRuntimes())
+        PackageManager.ToolPkgRuntimeChangeListener { activeContainers ->
+            syncToolPkgRegistrations(activeContainers)
         }
 
     private object Bridge : ChatInputHook {

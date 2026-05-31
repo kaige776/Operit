@@ -19,6 +19,7 @@ object LocaleUtils {
         const val AUTO = "system"
         const val CHINESE = "zh"
         const val ENGLISH = "en"
+        const val KOREAN = "ko"
         const val SPANISH = "es"
         const val MALAY = "ms"
         const val INDONESIAN = "id"
@@ -41,6 +42,7 @@ object LocaleUtils {
                     Language(LanguageCodes.AUTO, "Follow system", "跟随系统"),
                     Language(LanguageCodes.CHINESE, "Chinese", "中文"),
                     Language(LanguageCodes.ENGLISH, "English", "English"),
+                    Language(LanguageCodes.KOREAN, "Korean", "한국어"),
                     Language(LanguageCodes.SPANISH, "Spanish", "Español"),
                     Language(LanguageCodes.MALAY, "Malay", "Bahasa Melayu"),
                     Language(LanguageCodes.INDONESIAN, "Indonesian", "Bahasa Indonesia"),

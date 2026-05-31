@@ -18,9 +18,11 @@ import com.ai.assistance.operit.services.core.MessageProcessingDelegate
 import com.ai.assistance.operit.services.core.TokenStatisticsDelegate
 import com.ai.assistance.operit.core.tools.AIToolHandler
 import com.ai.assistance.operit.ui.features.chat.viewmodel.UiStateDelegate
+import com.ai.assistance.operit.ui.features.chat.webview.workspace.process.WorkspaceChangeTracker
 import com.ai.assistance.operit.util.stream.SharedStream
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -60,6 +62,8 @@ class ChatServiceCore(
     // 额外的 onTurnComplete 回调（用于悬浮窗通知应用等场景）
     private var additionalOnTurnComplete: ((String?, Int, Int, Int) -> Unit)? = null
     private var uiBridge: ChatServiceUiBridge = EmptyChatServiceUiBridge
+    private val workspaceChangeTracker = WorkspaceChangeTracker.getInstance(context)
+    private val workspaceTrackerOwnerId = "${selectionMode.name}@${System.identityHashCode(this)}"
 
     init {
         AppLogger.d(TAG, "ChatServiceCore 初始化")
@@ -131,6 +135,22 @@ class ChatServiceCore(
                         EnhancedAIService.getChatInstance(context, chatId)
                     )
                 }
+            }
+        }
+
+        coroutineScope.launch {
+            combine(
+                chatHistoryDelegate.currentChatId,
+                chatHistoryDelegate.chatHistories
+            ) { chatId, histories ->
+                histories.firstOrNull { it.id == chatId }
+            }.collect { chat ->
+                workspaceChangeTracker.updateOwner(
+                    ownerId = workspaceTrackerOwnerId,
+                    chatId = chat?.id,
+                    workspacePath = chat?.workspace,
+                    workspaceEnv = chat?.workspaceEnv
+                )
             }
         }
 

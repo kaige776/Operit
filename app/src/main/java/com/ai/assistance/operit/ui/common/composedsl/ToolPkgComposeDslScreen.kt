@@ -24,7 +24,9 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.net.http.SslError
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -519,69 +521,75 @@ fun ToolPkgComposeDslToolScreen(
     var pendingFilePickerLaunch by remember(executionContextKey) {
         mutableStateOf<ComposeDslPendingFilePickerLaunch?>(null)
     }
-    val filePickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val pending = pendingFilePickerLaunch
-            pendingFilePickerLaunch = null
-            if (pending == null) {
-                return@rememberLauncherForActivityResult
-            }
-            if (result.resultCode != android.app.Activity.RESULT_OK) {
-                pending.onComplete(Result.success(buildComposeDslFilePickerResultJson(context, emptyList(), true)))
-                return@rememberLauncherForActivityResult
-            }
-            val data = result.data
-            val selectedUris =
-                buildList {
-                    data?.data?.let(::add)
-                    val clipData = data?.clipData
-                    if (clipData != null) {
-                        for (index in 0 until clipData.itemCount) {
-                            clipData.getItemAt(index)?.uri?.let(::add)
+    val activityResultRegistryOwner = LocalActivityResultRegistryOwner.current
+    val filePickerLauncher: ActivityResultLauncher<Intent>? =
+        if (activityResultRegistryOwner != null) {
+            rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                val pending = pendingFilePickerLaunch
+                pendingFilePickerLaunch = null
+                if (pending == null) {
+                    return@rememberLauncherForActivityResult
+                }
+                if (result.resultCode != android.app.Activity.RESULT_OK) {
+                    pending.onComplete(Result.success(buildComposeDslFilePickerResultJson(context, emptyList(), true)))
+                    return@rememberLauncherForActivityResult
+                }
+                val data = result.data
+                val selectedUris =
+                    buildList {
+                        data?.data?.let(::add)
+                        val clipData = data?.clipData
+                        if (clipData != null) {
+                            for (index in 0 until clipData.itemCount) {
+                                clipData.getItemAt(index)?.uri?.let(::add)
+                            }
                         }
-                    }
-                }.distinctBy { uri -> uri.toString() }
-            if (selectedUris.isEmpty()) {
-                pending.onComplete(Result.success(buildComposeDslFilePickerResultJson(context, emptyList(), true)))
-                return@rememberLauncherForActivityResult
-            }
-            if (pending.request.persistPermission) {
-                val flags =
-                    (data?.flags ?: 0) and
-                        (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                if (flags != 0) {
-                    selectedUris.forEach { uri ->
-                        runCatching {
-                            context.contentResolver.takePersistableUriPermission(uri, flags)
+                    }.distinctBy { uri -> uri.toString() }
+                if (selectedUris.isEmpty()) {
+                    pending.onComplete(Result.success(buildComposeDslFilePickerResultJson(context, emptyList(), true)))
+                    return@rememberLauncherForActivityResult
+                }
+                if (pending.request.persistPermission) {
+                    val flags =
+                        (data?.flags ?: 0) and
+                            (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    if (flags != 0) {
+                        selectedUris.forEach { uri ->
+                            runCatching {
+                                context.contentResolver.takePersistableUriPermission(uri, flags)
+                            }
                         }
                     }
                 }
-            }
-            runCatching {
-                val copiedFiles =
-                    selectedUris.map { uri ->
-                        val copiedFile = stageComposeDslPickedFile(context, uri, null)
-                        uri to copiedFile
-                    }
-                buildComposeDslFilePickerResultJson(
-                    context = context,
-                    copiedFiles = copiedFiles,
-                    cancelled = false
-                )
-            }.fold(
-                onSuccess = { resultJson ->
-                    pending.onComplete(Result.success(resultJson))
-                },
-                onFailure = { error ->
-                    pending.onComplete(
-                        Result.failure(
-                            IllegalStateException(
-                                error.message?.trim().orEmpty().ifBlank { "复制所选文件到临时目录失败" }
+                runCatching {
+                    val copiedFiles =
+                        selectedUris.map { uri ->
+                            val copiedFile = stageComposeDslPickedFile(context, uri, null)
+                            uri to copiedFile
+                        }
+                    buildComposeDslFilePickerResultJson(
+                        context = context,
+                        copiedFiles = copiedFiles,
+                        cancelled = false
+                    )
+                }.fold(
+                    onSuccess = { resultJson ->
+                        pending.onComplete(Result.success(resultJson))
+                    },
+                    onFailure = { error ->
+                        AppLogger.e(TAG, "compose_dsl file picker staging failed", error)
+                        pending.onComplete(
+                            Result.failure(
+                                IllegalStateException(
+                                    error.message?.trim().orEmpty().ifBlank { "复制所选文件到临时目录失败" }
+                                )
                             )
                         )
-                    )
-                }
-            )
+                    }
+                )
+            }
+        } else {
+            null
         }
     val jsEngine = remember(packageManager, executionContextKey) {
         packageManager.getToolPkgExecutionEngine(executionContextKey)
@@ -1101,6 +1109,11 @@ fun ToolPkgComposeDslToolScreen(
 
     DisposableEffect(executionContextKey) {
         ComposeDslFilePickerHostRegistry.bind(executionContextKey) { request, onComplete ->
+            val launcher = filePickerLauncher
+            if (launcher == null) {
+                onComplete(Result.failure(IllegalStateException("compose file picker requires an activity result registry owner")))
+                return@bind
+            }
             pendingFilePickerLaunch = ComposeDslPendingFilePickerLaunch(request = request, onComplete = onComplete)
             val intent =
                 Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -1111,7 +1124,7 @@ fun ToolPkgComposeDslToolScreen(
                         putExtra(Intent.EXTRA_MIME_TYPES, request.mimeTypes.toTypedArray())
                     }
                 }
-            filePickerLauncher.launch(intent)
+            launcher.launch(intent)
         }
         onDispose {
             pendingFilePickerLaunch?.onComplete?.invoke(

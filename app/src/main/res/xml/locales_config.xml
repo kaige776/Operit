@@ -2,6 +2,9 @@
 <locale-config xmlns:android="http://schemas.android.com/apk/res/android">
     <locale android:name="zh"/>
     <locale android:name="en"/>
+    <locale android:name="ko"/>
     <locale android:name="es"/>
-    <!-- 可以继续添加其他支持的语言 -->
+    <locale android:name="ms"/>
+    <locale android:name="id"/>
+    <locale android:name="pt-BR"/>
 </locale-config> 

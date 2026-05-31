@@ -23,8 +23,8 @@ internal object ToolPkgChatViewHookBridge : ChatViewHookPlugin {
     @Volatile
     private var hooks: List<ToolPkgChatViewHookRegistration> = emptyList()
     private val runtimeChangeListener =
-        PackageManager.ToolPkgRuntimeChangeListener {
-            syncAndReplayToolPkgRegistrations(toolPkgPackageManager().getEnabledToolPkgContainerRuntimes())
+        PackageManager.ToolPkgRuntimeChangeListener { activeContainers ->
+            syncAndReplayToolPkgRegistrations(activeContainers)
         }
 
     override val id: String = "builtin.toolpkg.chat-view-hook-bridge"
