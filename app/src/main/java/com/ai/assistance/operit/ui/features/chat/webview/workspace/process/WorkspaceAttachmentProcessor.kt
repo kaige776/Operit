@@ -11,6 +11,10 @@ object WorkspaceAttachmentProcessor {
             if (workspaceTag.isNotEmpty()) {
                 appendLine("工作区环境：${escapeText(workspaceTag)}")
             }
+            changes.initialRootStructure?.takeIf { it.isNotBlank() }?.let { rootStructure ->
+                appendLine("首次加载工作区：")
+                appendLine(escapeText(rootStructure))
+            }
             if (changes.changes.isNotEmpty() || changes.omittedCount > 0) {
                 appendLine("工作区文件变化：")
                 changes.changes.forEach { change ->

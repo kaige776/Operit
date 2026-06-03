@@ -416,6 +416,17 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
     )
 
     handler.registerTool(
+            name = "music_play_queue",
+            descriptionGenerator = { tool ->
+                val items = tool.parameters.find { it.name == "items" }?.value ?: ""
+                "Play music queue: $items"
+            },
+            executor = { tool ->
+                runBlocking(Dispatchers.IO) { musicPlaybackTools.playQueue(tool) }
+            }
+    )
+
+    handler.registerTool(
             name = "music_pause",
             descriptionGenerator = { _ -> "Pause music playback" },
             executor = { tool ->

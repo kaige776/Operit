@@ -51,6 +51,54 @@ sleep(milliseconds: string | number): Promise<SleepResultData>
 
 发送通知，返回 `StringResultData`。
 
+### 音乐播放
+
+音乐播放能力在 `Tools.System.music` 下，返回 `MusicPlaybackResultData`。
+
+#### `music.play(options)`
+
+播放单个音频。
+
+```ts
+Tools.System.music.play({
+  source: "/sdcard/Download/song.mp3",
+  sourceType: "path",
+  title: "Song",
+  artist: "Artist",
+  loop: false,
+  volume: 1,
+  startPositionMs: 0
+})
+```
+
+#### `music.playQueue(options)`
+
+播放音频队列。`items` 中每个曲目需要提供 `source` 和 `sourceType`，可选 `title`、`artist`。
+
+```ts
+Tools.System.music.playQueue({
+  items: [
+    { source: "/sdcard/Download/one.mp3", sourceType: "path", title: "One" },
+    { source: "/sdcard/Download/two.mp3", sourceType: "path", title: "Two" }
+  ],
+  loop: false,
+  volume: 1,
+  startIndex: 0,
+  startPositionMs: 0
+})
+```
+
+#### 其他控制
+
+```ts
+Tools.System.music.pause()
+Tools.System.music.resume()
+Tools.System.music.stop()
+Tools.System.music.seek(30000)
+Tools.System.music.setVolume(0.8)
+Tools.System.music.status()
+```
+
 ### 应用管理
 
 #### `usePackage(packageName)`

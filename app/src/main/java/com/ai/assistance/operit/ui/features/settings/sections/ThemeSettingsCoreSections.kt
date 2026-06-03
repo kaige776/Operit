@@ -356,6 +356,7 @@ internal fun ThemeSettingsChatStyleSection(
     onBubbleAiContentPaddingRightInputChange: (Float) -> Unit,
     saveThemeSettingsWithCharacterCard: SaveThemeSettingsAction,
     preferencesManager: UserPreferencesManager,
+    showInputStyleControls: Boolean = true,
 ) {
     ThemeSettingsSectionTitle(
         title = stringResource(id = R.string.chat_style_title),
@@ -401,48 +402,50 @@ internal fun ThemeSettingsChatStyleSection(
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            if (showInputStyleControls) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            Text(
-                text = stringResource(id = R.string.input_style_title),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(bottom = 4.dp),
-            )
-            Text(
-                text = stringResource(id = R.string.input_style_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
+                Text(
+                    text = stringResource(id = R.string.input_style_title),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                Text(
+                    text = stringResource(id = R.string.input_style_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ChatStyleOption(
-                    title = stringResource(id = R.string.input_style_classic),
-                    selected =
-                        inputStyleInput == UserPreferencesManager.INPUT_STYLE_CLASSIC,
-                    modifier = Modifier.weight(1f),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    onInputStyleInputChange(UserPreferencesManager.INPUT_STYLE_CLASSIC)
-                    saveThemeSettingsWithCharacterCard {
-                        preferencesManager.saveThemeSettings(
-                            inputStyle = UserPreferencesManager.INPUT_STYLE_CLASSIC,
-                        )
+                    ChatStyleOption(
+                        title = stringResource(id = R.string.input_style_classic),
+                        selected =
+                            inputStyleInput == UserPreferencesManager.INPUT_STYLE_CLASSIC,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        onInputStyleInputChange(UserPreferencesManager.INPUT_STYLE_CLASSIC)
+                        saveThemeSettingsWithCharacterCard {
+                            preferencesManager.saveThemeSettings(
+                                inputStyle = UserPreferencesManager.INPUT_STYLE_CLASSIC,
+                            )
+                        }
                     }
-                }
 
-                ChatStyleOption(
-                    title = stringResource(id = R.string.input_style_agent),
-                    selected = inputStyleInput == UserPreferencesManager.INPUT_STYLE_AGENT,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    onInputStyleInputChange(UserPreferencesManager.INPUT_STYLE_AGENT)
-                    saveThemeSettingsWithCharacterCard {
-                        preferencesManager.saveThemeSettings(
-                            inputStyle = UserPreferencesManager.INPUT_STYLE_AGENT,
-                        )
+                    ChatStyleOption(
+                        title = stringResource(id = R.string.input_style_agent),
+                        selected = inputStyleInput == UserPreferencesManager.INPUT_STYLE_AGENT,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        onInputStyleInputChange(UserPreferencesManager.INPUT_STYLE_AGENT)
+                        saveThemeSettingsWithCharacterCard {
+                            preferencesManager.saveThemeSettings(
+                                inputStyle = UserPreferencesManager.INPUT_STYLE_AGENT,
+                            )
+                        }
                     }
                 }
             }

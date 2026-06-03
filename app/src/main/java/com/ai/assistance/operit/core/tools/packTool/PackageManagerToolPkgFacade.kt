@@ -10,8 +10,9 @@ import com.ai.assistance.operit.util.AppLogger
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.UUID
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 internal class PackageManagerToolPkgFacade(
     private val packageManager: PackageManager
@@ -409,14 +410,18 @@ internal class PackageManagerToolPkgFacade(
                     ?: throw IllegalStateException(
                         "Workflow template resource is unavailable: ${template.resourceKey}"
                     )
-            val decoded =
-                workflowTemplateJson.decodeFromString<Workflow>(
-                    bytes.toString(StandardCharsets.UTF_8)
+            val templateWorkflowId = UUID.randomUUID().toString()
+            val templateElement =
+                JsonObject(
+                    (workflowTemplateJson.parseToJsonElement(bytes.toString(StandardCharsets.UTF_8)) as JsonObject) +
+                        ("id" to JsonPrimitive(templateWorkflowId))
                 )
+            val decoded =
+                workflowTemplateJson.decodeFromJsonElement(Workflow.serializer(), templateElement)
             val now = System.currentTimeMillis()
             val importedWorkflow =
                 decoded.copy(
-                    id = UUID.randomUUID().toString(),
+                    id = templateWorkflowId,
                     createdAt = now,
                     updatedAt = now,
                     lastExecutionTime = null,

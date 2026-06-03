@@ -194,7 +194,22 @@ object AIMessageManager {
                 if (enableDirectImageProcessing && attachment.mimeType.startsWith("image/", ignoreCase = true)) {
                     try {
                         val imageId = ImagePoolManager.addImage(attachment.filePath)
-                        MediaLinkBuilder.image(context, imageId)
+                        val attributes = buildString {
+                            append("id=\"${attachment.filePath}\" ")
+                            append("filename=\"${attachment.fileName}\" ")
+                            append("type=\"${attachment.mimeType}\"")
+                            if (attachment.fileSize > 0) {
+                                append(" size=\"${attachment.fileSize}\"")
+                            }
+                        }
+                        val attachedContent = buildString {
+                            append("图片内容已作为多模态输入随本消息附着，勿调用文件读取工具读取该路径。")
+                            if (attachment.content.isNotBlank()) {
+                                append("\n")
+                                append(attachment.content)
+                            }
+                        }
+                        "${MediaLinkBuilder.image(context, imageId)} <attachment $attributes>$attachedContent</attachment>"
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "添加图片到池失败: ${attachment.filePath}", e)
                         // 失败时回退到普通附件格式

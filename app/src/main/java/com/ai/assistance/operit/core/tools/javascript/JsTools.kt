@@ -884,6 +884,51 @@ fun getJsToolsDefinition(): String {
                         }
                         return toolCall("music_play", params);
                     },
+                    playQueue: (options) => {
+                        if (!options || typeof options !== "object" || Array.isArray(options)) {
+                            throw new Error("music.playQueue requires one options object");
+                        }
+                        if (!Array.isArray(options.items)) {
+                            throw new Error("music.playQueue requires items array");
+                        }
+                        const items = options.items.map((item, index) => {
+                            if (!item || typeof item !== "object" || Array.isArray(item)) {
+                                throw new Error("music.playQueue items[" + index + "] must be an object");
+                            }
+                            const mapped = { ...item };
+                            if (mapped.sourceType !== undefined && mapped.sourceType !== null) {
+                                mapped.source_type = String(mapped.sourceType);
+                                delete mapped.sourceType;
+                            }
+                            if (mapped.source !== undefined && mapped.source !== null) {
+                                mapped.source = String(mapped.source);
+                            }
+                            if (mapped.source_type !== undefined && mapped.source_type !== null) {
+                                mapped.source_type = String(mapped.source_type);
+                            }
+                            if (mapped.title !== undefined && mapped.title !== null) {
+                                mapped.title = String(mapped.title);
+                            }
+                            if (mapped.artist !== undefined && mapped.artist !== null) {
+                                mapped.artist = String(mapped.artist);
+                            }
+                            return mapped;
+                        });
+                        const params = { items: JSON.stringify(items) };
+                        if (options.loop !== undefined) {
+                            params.loop = !!options.loop;
+                        }
+                        if (options.volume !== undefined && options.volume !== null) {
+                            params.volume = String(options.volume);
+                        }
+                        if (options.startIndex !== undefined && options.startIndex !== null) {
+                            params.start_index = String(options.startIndex);
+                        }
+                        if (options.startPositionMs !== undefined && options.startPositionMs !== null) {
+                            params.start_position_ms = String(options.startPositionMs);
+                        }
+                        return toolCall("music_play_queue", params);
+                    },
                     pause: () => toolCall("music_pause", {}),
                     resume: () => toolCall("music_resume", {}),
                     stop: () => toolCall("music_stop", {}),

@@ -868,12 +868,12 @@ class UserPreferencesManager private constructor(private val context: Context) {
 
     val showRoleName: Flow<Boolean> =
         context.userPreferencesDataStore.data.map { preferences ->
-            preferences[KEY_SHOW_ROLE_NAME] ?: false
+            preferences[KEY_SHOW_ROLE_NAME] ?: true
         }
 
     val showUserName: Flow<Boolean> =
         context.userPreferencesDataStore.data.map { preferences ->
-            preferences[KEY_SHOW_USER_NAME] ?: false
+            preferences[KEY_SHOW_USER_NAME] ?: true
         }
 
     val showMessageTokenStats: Flow<Boolean> =
@@ -2158,8 +2158,8 @@ class UserPreferencesManager private constructor(private val context: Context) {
             showStatusTags = booleanValue(KEY_SHOW_STATUS_TAGS, true),
             showModelProvider = booleanValue(KEY_SHOW_MODEL_PROVIDER, false),
             showModelName = booleanValue(KEY_SHOW_MODEL_NAME, false),
-            showRoleName = booleanValue(KEY_SHOW_ROLE_NAME, false),
-            showUserName = booleanValue(KEY_SHOW_USER_NAME, false),
+            showRoleName = booleanValue(KEY_SHOW_ROLE_NAME, true),
+            showUserName = booleanValue(KEY_SHOW_USER_NAME, true),
             showMessageTokenStats = booleanValue(KEY_SHOW_MESSAGE_TOKEN_STATS, false),
             showMessageTimingStats = booleanValue(KEY_SHOW_MESSAGE_TIMING_STATS, false),
             showMessageTimestamp = booleanValue(KEY_SHOW_MESSAGE_TIMESTAMP, false),

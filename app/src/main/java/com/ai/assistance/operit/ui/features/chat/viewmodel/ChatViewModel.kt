@@ -367,68 +367,6 @@ class ChatViewModel(private val context: Context) : ViewModel() {
         }
     }
 
-    fun handleSharedLinks(urls: List<String>, targetChatId: String? = null) {
-        AppLogger.d(TAG, "handleSharedLinks called with ${urls.size} link(s)")
-        urls.forEachIndexed { index, url ->
-            AppLogger.d(TAG, "  [$index] URL: $url")
-        }
-
-        viewModelScope.launch {
-            try {
-                val chatId = resolveTargetChatIdForSharedContent(targetChatId)
-                if (chatId == null) {
-                    AppLogger.e(TAG, "Failed to prepare target chat for shared links")
-                    uiStateDelegate.showErrorMessage(
-                        context.getString(R.string.chat_prepare_shared_target_failed)
-                    )
-                    return@launch
-                }
-
-                messageProcessingDelegate.setInputProcessingStateForChat(
-                    chatId,
-                    InputProcessingState.Processing(context.getString(R.string.chat_processing_shared_files))
-                )
-
-                val now = System.currentTimeMillis()
-                val attachmentsToAdd = urls
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .mapIndexed { index, url ->
-                        val host = runCatching { Uri.parse(url).host }.getOrNull()
-                        val fileName = if (!host.isNullOrBlank()) "${host}.url" else "link.url"
-                        AttachmentInfo(
-                            filePath = "link_${now}_$index",
-                            fileName = fileName,
-                            mimeType = "text/plain",
-                            fileSize = url.length.toLong(),
-                            content = url
-                        )
-                    }
-
-                attachmentDelegate.addAttachments(attachmentsToAdd)
-
-                messageProcessingDelegate.updateUserMessage(
-                    TextFieldValue(context.getString(R.string.chat_prefill_check_file))
-                )
-
-                messageProcessingDelegate.setInputProcessingStateForChat(
-                    chatId,
-                    InputProcessingState.Idle
-                )
-
-                uiStateDelegate.showToast(context.getString(R.string.chat_added_files_count, attachmentsToAdd.size))
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "处理分享链接失败", e)
-                uiStateDelegate.showErrorMessage(context.getString(R.string.chat_process_shared_files_failed, e.message ?: ""))
-                val chatId = currentChatId.value
-                if (chatId != null) {
-                    messageProcessingDelegate.setInputProcessingStateForChat(chatId, InputProcessingState.Idle)
-                }
-            }
-        }
-    }
-
     // 添加一个用于跟踪附件面板状态的变量
     private val _attachmentPanelState = MutableStateFlow(false)
     val attachmentPanelState: StateFlow<Boolean> = _attachmentPanelState
@@ -1676,18 +1614,9 @@ class ChatViewModel(private val context: Context) : ViewModel() {
         floatingWindowDelegate.toggleFloatingMode(colorScheme, typography)
     }
 
-    // 权限相关方法
-    fun toggleMasterPermission() {
+    fun setMasterPermissionLevel(level: PermissionLevel) {
         viewModelScope.launch {
-            val newLevel =
-                    if (masterPermissionLevel.value == PermissionLevel.ASK) {
-                        PermissionLevel.ALLOW
-                    } else {
-                        PermissionLevel.ASK
-                    }
-            toolPermissionSystem.saveMasterSwitch(newLevel)
-
-            // 移除Toast提示
+            toolPermissionSystem.saveMasterSwitch(level)
         }
     }
 
@@ -2001,7 +1930,34 @@ class ChatViewModel(private val context: Context) : ViewModel() {
      * Handles shared files from external apps
      * Attaches files to the selected chat or a newly created chat, then pre-fills the message
      */
-    fun handleSharedFiles(uris: List<Uri>, targetChatId: String? = null) {
+    fun handleSharedText(text: String, targetChatId: String? = null) {
+        val sharedText = text.trim()
+        if (sharedText.isBlank()) return
+
+        viewModelScope.launch {
+            try {
+                val chatId = resolveTargetChatIdForSharedContent(targetChatId)
+                if (chatId == null) {
+                    AppLogger.e(TAG, "Failed to prepare target chat for shared text")
+                    uiStateDelegate.showErrorMessage(
+                        context.getString(R.string.chat_prepare_shared_target_failed)
+                    )
+                    return@launch
+                }
+
+                messageProcessingDelegate.updateUserMessage(
+                    TextFieldValue(sharedText)
+                )
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "处理分享文本失败", e)
+                uiStateDelegate.showErrorMessage(
+                    context.getString(R.string.chat_process_shared_files_failed, e.message ?: "")
+                )
+            }
+        }
+    }
+
+    fun handleSharedFiles(uris: List<Uri>, targetChatId: String? = null, sharedText: String? = null) {
         AppLogger.d(TAG, "handleSharedFiles called with ${uris.size} file(s)")
         uris.forEachIndexed { index, uri ->
             AppLogger.d(TAG, "  [$index] URI: $uri")
@@ -2036,9 +1992,19 @@ class ChatViewModel(private val context: Context) : ViewModel() {
                 }
                 AppLogger.d(TAG, "All files attached successfully")
                 
-                // Set the pre-filled message
-                AppLogger.d(TAG, "Setting pre-filled message")
-                messageProcessingDelegate.updateUserMessage(TextFieldValue(context.getString(R.string.chat_prefill_check_file)))
+                if (messageProcessingDelegate.userMessage.value.text.isBlank()) {
+                    AppLogger.d(TAG, "Setting pre-filled message")
+                    val text = sharedText?.trim()
+                    if (!text.isNullOrBlank()) {
+                        messageProcessingDelegate.updateUserMessage(
+                            TextFieldValue(text)
+                        )
+                    } else {
+                        messageProcessingDelegate.updateUserMessage(
+                            TextFieldValue(context.getString(R.string.chat_prefill_check_file))
+                        )
+                    }
+                }
 
                 // Clear processing state
                 messageProcessingDelegate.setInputProcessingStateForChat(chatId, InputProcessingState.Idle)

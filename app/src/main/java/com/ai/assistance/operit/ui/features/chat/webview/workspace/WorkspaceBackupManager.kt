@@ -28,6 +28,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import com.ai.assistance.operit.ui.features.chat.webview.workspace.process.WorkspaceChangeTracker
 
 @Serializable
 data class FileStat(
@@ -60,7 +61,8 @@ class WorkspaceBackupManager(private val context: Context) {
                 "write_file_binary",
                 "move_file",
                 "delete_file",
-                "copy_file"
+                "copy_file",
+                "make_directory"
             )
 
         @Volatile
@@ -136,6 +138,8 @@ class WorkspaceBackupManager(private val context: Context) {
 
             val affectedPaths = extractWorkspaceAffectedPaths(tool, workspacePath, workspaceEnv)
             if (affectedPaths.isEmpty()) return
+            WorkspaceChangeTracker.getInstance(context)
+                .ignoreAiChanges(workspacePath, workspaceEnv, extractWorkspaceMutatedPaths(tool, workspacePath, workspaceEnv))
 
             runBlocking(Dispatchers.IO) {
                 if (initialized) return@runBlocking
@@ -162,6 +166,8 @@ class WorkspaceBackupManager(private val context: Context) {
             val affectedPaths =
                 extractWorkspaceAffectedPaths(tool, workspacePath, workspaceEnv).distinct()
             if (affectedPaths.isEmpty()) return
+            WorkspaceChangeTracker.getInstance(context)
+                .ignoreAiChanges(workspacePath, workspaceEnv, extractWorkspaceMutatedPaths(tool, workspacePath, workspaceEnv))
 
             runBlocking(Dispatchers.IO) {
                 val state = currentState ?: return@runBlocking
@@ -263,6 +269,13 @@ class WorkspaceBackupManager(private val context: Context) {
                 )
             }
 
+            "make_directory" -> {
+                collectPath(
+                    tool.parameters.find { it.name == "path" }?.value,
+                    defaultEnvironment
+                )
+            }
+
             "move_file" -> {
                 collectPath(
                     tool.parameters.find { it.name == "source" }?.value,
@@ -293,6 +306,73 @@ class WorkspaceBackupManager(private val context: Context) {
         }
 
         return result
+    }
+
+    private fun extractWorkspaceMutatedPaths(
+        tool: AITool,
+        workspacePath: String,
+        workspaceEnv: String?
+    ): List<String> {
+        val result = mutableListOf<String>()
+
+        fun collectPath(path: String?, toolEnv: String?) {
+            var normalizedPath = path?.trim()?.trimEnd('/').orEmpty()
+            if (normalizedPath.isBlank()) return
+            if (!isEnvironmentMatchForWorkspace(toolEnv, workspaceEnv)) return
+
+            if (makeRelativePath(workspacePath, normalizedPath) == null && !normalizedPath.startsWith("/")) {
+                normalizedPath = joinPath(workspacePath, normalizedPath)
+            }
+
+            val relativePath = makeRelativePath(workspacePath, normalizedPath) ?: return
+            if (
+                relativePath == BACKUP_DIR_NAME ||
+                    relativePath.startsWith("$BACKUP_DIR_NAME/")
+            ) {
+                return
+            }
+            result.add(normalizedPath)
+        }
+
+        val defaultEnvironment = tool.parameters.find { it.name == "environment" }?.value
+
+        when (tool.name) {
+            "apply_file",
+            "create_file",
+            "edit_file",
+            "delete_file",
+            "write_file",
+            "write_file_binary",
+            "make_directory" -> {
+                collectPath(
+                    tool.parameters.find { it.name == "path" }?.value,
+                    defaultEnvironment
+                )
+            }
+
+            "move_file" -> {
+                collectPath(
+                    tool.parameters.find { it.name == "source" }?.value,
+                    defaultEnvironment
+                )
+                collectPath(
+                    tool.parameters.find { it.name == "destination" }?.value,
+                    defaultEnvironment
+                )
+            }
+
+            "copy_file" -> {
+                val destinationEnvironment =
+                    tool.parameters.find { it.name == "dest_environment" }?.value
+                        ?: defaultEnvironment
+                collectPath(
+                    tool.parameters.find { it.name == "destination" }?.value,
+                    destinationEnvironment
+                )
+            }
+        }
+
+        return result.distinct()
     }
 
     private suspend fun initializeHookSessionProvider(

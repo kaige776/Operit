@@ -147,6 +147,7 @@ class StandardWorkflowTools(private val context: Context) {
             }
 
             val workflow = Workflow(
+                id = UUID.randomUUID().toString(),
                 name = name,
                 description = description,
                 nodes = nodes,

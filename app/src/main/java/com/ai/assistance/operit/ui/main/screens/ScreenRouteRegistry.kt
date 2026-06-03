@@ -29,10 +29,12 @@ import com.ai.assistance.operit.ui.main.navigation.RouteEntry
 import com.ai.assistance.operit.ui.main.navigation.RouteEntrySource
 import com.ai.assistance.operit.ui.main.navigation.RouteRuntime
 import com.ai.assistance.operit.ui.main.navigation.RouteSpec
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.KClass
 import kotlin.reflect.KParameter
 import kotlin.reflect.KProperty1
 import kotlin.reflect.KType
+import kotlin.reflect.KFunction
 import kotlin.reflect.full.memberProperties
 import kotlin.reflect.full.primaryConstructor
 
@@ -62,39 +64,45 @@ private fun nativeRouteIdForTypeName(typeName: String): String {
     return "native.${camelToSnakeCase(typeName)}"
 }
 
-private fun routeIdForType(type: KClass<out Screen>): String {
-    return nativeRouteIdForTypeName(type.simpleName ?: type.java.simpleName)
+private fun routeIdForClass(type: Class<out Screen>): String {
+    return nativeRouteIdForTypeName(type.simpleName)
+}
+
+private data class ScreenRouteReflector(
+    val constructor: KFunction<Screen>,
+    val valueParameters: List<KParameter>
+)
+
+private data class ScreenArgExtractor(
+    val valueParameters: List<KParameter>,
+    val propertiesByName: Map<String, KProperty1<Any, *>>
+)
+
+private fun Class<out Screen>.isKotlinObjectClass(): Boolean {
+    return declaredFields.any { field ->
+        field.name == "INSTANCE" && field.type == this
+    }
 }
 
 object ScreenRouteRegistry {
-    private val screenTypes: List<KClass<out Screen>> =
+    private val screenTypes: List<Class<out Screen>> =
         Screen::class.java.declaredClasses
             .mapNotNull { declaredClass ->
-                declaredClass.kotlin
-                    .takeIf { Screen::class.java.isAssignableFrom(it.java) }
-                    ?.let { it as KClass<out Screen> }
+                if (!Screen::class.java.isAssignableFrom(declaredClass)) {
+                    null
+                } else {
+                    declaredClass.asSubclass(Screen::class.java)
+                }
             }
-            .sortedBy { it.simpleName ?: it.java.simpleName }
+            .sortedBy { it.simpleName }
 
-    private val routeTypeById: Map<String, KClass<out Screen>> =
-        screenTypes.associateBy(::routeIdForType)
-
-    private val defaultScreensByRouteId: Map<String, Screen> =
-        screenTypes
-            .mapNotNull { type ->
-                defaultScreenInstance(type)?.let { routeIdForType(type) to it }
-            }
-            .toMap()
-
-    private val objectScreensByRouteId: Map<String, Screen> =
-        screenTypes
-            .mapNotNull { type ->
-                val instance = type.objectInstance ?: return@mapNotNull null
-                routeIdForType(type) to instance
-            }
-            .toMap()
+    private val routeTypeById: Map<String, Class<out Screen>> =
+        screenTypes.associateBy(::routeIdForClass)
 
     private val nativeRouteIds: List<String> = routeTypeById.keys.sorted()
+    private val objectScreensByRouteId = ConcurrentHashMap<String, Screen>()
+    private val routeReflectorsById = ConcurrentHashMap<String, ScreenRouteReflector>()
+    private val argExtractorsByClass = ConcurrentHashMap<Class<out Screen>, ScreenArgExtractor>()
 
     // Host navigation is declared in one place.
     // `surface != null` means the entry is visible in navigation UI.
@@ -372,9 +380,14 @@ object ScreenRouteRegistry {
             }
             .toMap()
 
+    private val directScreenByRouteId: Map<String, Screen> =
+        hostEntryDefinitions
+            .map { definition -> routeIdOf(definition.screen) to definition.screen }
+            .toMap()
+
     fun hostRouteSpecs(context: Context): List<RouteSpec> =
         nativeRouteIds.map { routeId ->
-            val screen = defaultScreensByRouteId[routeId]
+            val screen = directScreenByRouteId[routeId]
             hostSpec(
                 routeId = routeId,
                 title = screen?.let { resolveOptionalTitle(context, defaultTitleResId(it)) },
@@ -409,7 +422,7 @@ object ScreenRouteRegistry {
     }
 
     fun routeIdOf(screen: Screen): String {
-        return routeIdForType(screen::class)
+        return routeIdForClass(screen.javaClass)
     }
 
     fun toEntry(
@@ -431,16 +444,17 @@ object ScreenRouteRegistry {
     }
 
     fun buildScreen(routeId: String, args: Map<String, Any?>): Screen? {
+        if (args.isEmpty()) {
+            directScreenByRouteId[routeId]?.let { return it }
+        }
         objectScreensByRouteId[routeId]?.let { return it }
+        createObjectScreen(routeId)?.let { return it }
 
-        val screenType = routeTypeById[routeId] ?: return null
-        val constructor = screenType.primaryConstructor ?: return null
+        val reflector = routeReflectorsById[routeId] ?: createRouteReflector(routeId) ?: return null
+        val constructor = reflector.constructor
         val callArgs = linkedMapOf<KParameter, Any?>()
 
-        for (parameter in constructor.parameters) {
-            if (parameter.kind != KParameter.Kind.VALUE) {
-                continue
-            }
+        for (parameter in reflector.valueParameters) {
             val paramName = parameter.name ?: return null
             if (!args.containsKey(paramName)) {
                 if (parameter.isOptional) {
@@ -474,18 +488,21 @@ object ScreenRouteRegistry {
 
     @Suppress("UNCHECKED_CAST")
     private fun extractConstructorArgs(screen: Screen): Map<String, Any?> {
-        val type = screen::class
-        val constructor = type.primaryConstructor ?: return emptyMap()
-        val propertiesByName = type.memberProperties.associateBy { it.name }
+        val screenClass = screen.javaClass
+        if (screenClass.isKotlinObjectClass()) {
+            return emptyMap()
+        }
+
+        val extractor = argExtractorsByClass[screenClass] ?: createArgExtractor(screenClass)
+        val valueParameters = extractor?.valueParameters ?: return emptyMap()
+        val propertiesByName = extractor.propertiesByName
         val args = linkedMapOf<String, Any?>()
 
-        constructor.parameters
-            .filter { it.kind == KParameter.Kind.VALUE && it.name != null }
-            .forEach { parameter ->
-                val paramName = parameter.name ?: return@forEach
-                val property = propertiesByName[paramName] as? KProperty1<Any, *> ?: return@forEach
-                args[paramName] = property.get(screen)
-            }
+        valueParameters.forEach { parameter ->
+            val paramName = parameter.name ?: return@forEach
+            val property = propertiesByName[paramName] ?: return@forEach
+            args[paramName] = property.get(screen)
+        }
         return args
     }
 
@@ -534,25 +551,48 @@ object ScreenRouteRegistry {
         }
     }
 
-    private fun defaultScreenInstance(type: KClass<out Screen>): Screen? {
-        type.objectInstance?.let { return it }
+    @Suppress("UNCHECKED_CAST")
+    private fun createRouteReflector(routeId: String): ScreenRouteReflector? {
+        routeReflectorsById[routeId]?.let { return it }
 
-        val constructor = type.primaryConstructor ?: return null
-        val callArgs = linkedMapOf<KParameter, Any?>()
-        for (parameter in constructor.parameters) {
-            if (parameter.kind != KParameter.Kind.VALUE) {
-                continue
-            }
-            if (parameter.isOptional) {
-                continue
-            }
-            if (parameter.type.isMarkedNullable) {
-                callArgs[parameter] = null
-                continue
-            }
-            return null
-        }
-        return runCatching { constructor.callBy(callArgs) }.getOrNull()
+        val screenType = routeTypeById[routeId] ?: return null
+        val constructor = screenType.kotlin.primaryConstructor ?: return null
+        val reflector =
+            ScreenRouteReflector(
+                constructor = constructor as KFunction<Screen>,
+                valueParameters = constructor.parameters.filter { it.kind == KParameter.Kind.VALUE }
+            )
+        routeReflectorsById[routeId] = reflector
+        return reflector
+    }
+
+    private fun createObjectScreen(routeId: String): Screen? {
+        val screenType = routeTypeById[routeId] ?: return null
+        val instanceField =
+            screenType.declaredFields.firstOrNull { field ->
+                field.name == "INSTANCE" && field.type == screenType
+            } ?: return null
+        instanceField.isAccessible = true
+        val screen = instanceField.get(null) as? Screen ?: return null
+        objectScreensByRouteId[routeId] = screen
+        return screen
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun createArgExtractor(screenClass: Class<out Screen>): ScreenArgExtractor? {
+        argExtractorsByClass[screenClass]?.let { return it }
+
+        val constructor = screenClass.kotlin.primaryConstructor ?: return null
+        val extractor =
+            ScreenArgExtractor(
+                valueParameters = constructor.parameters.filter { it.kind == KParameter.Kind.VALUE },
+                propertiesByName =
+                    screenClass.kotlin.memberProperties.associate { property ->
+                        property.name to (property as KProperty1<Any, *>)
+                    }
+            )
+        argExtractorsByClass[screenClass] = extractor
+        return extractor
     }
 
     private fun hostSpec(

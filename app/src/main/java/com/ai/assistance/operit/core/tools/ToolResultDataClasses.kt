@@ -339,6 +339,8 @@ data class MusicPlaybackResultData(
         val bufferedPositionMs: Long = 0L,
         val volume: Float = 1f,
         val loop: Boolean = false,
+        val queueIndex: Int? = null,
+        val queueSize: Int? = null,
         val message: String = ""
 ) : ToolResultData() {
     override fun toString(): String {
@@ -354,6 +356,9 @@ data class MusicPlaybackResultData(
         sb.appendLine("Buffered Position: ${bufferedPositionMs}ms")
         sb.appendLine("Volume: $volume")
         sb.appendLine("Loop: $loop")
+        if (queueIndex != null && queueSize != null) {
+            sb.appendLine("Queue: ${queueIndex + 1}/$queueSize")
+        }
         if (message.isNotBlank()) sb.appendLine("Message: $message")
         return sb.toString()
     }

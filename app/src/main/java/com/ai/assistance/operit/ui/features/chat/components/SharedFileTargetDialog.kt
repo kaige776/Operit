@@ -38,6 +38,7 @@ import java.util.Locale
 @Composable
 fun SharedFileTargetDialog(
     fileCount: Int,
+    isTextShare: Boolean = false,
     recentChats: List<ChatHistory>,
     currentChatId: String?,
     onCreateNewChat: () -> Unit,
@@ -80,10 +81,15 @@ fun SharedFileTargetDialog(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = stringResource(
-                            R.string.chat_shared_file_target_dialog_message,
-                            fileCount
-                        ),
+                        text =
+                            if (isTextShare) {
+                                stringResource(R.string.chat_shared_text_target_dialog_message)
+                            } else {
+                                stringResource(
+                                    R.string.chat_shared_file_target_dialog_message,
+                                    fileCount
+                                )
+                            },
                         style = MaterialTheme.typography.bodyMedium
                     )
 
@@ -100,7 +106,12 @@ fun SharedFileTargetDialog(
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                text = stringResource(R.string.chat_shared_file_target_new_chat_hint),
+                                text =
+                                    if (isTextShare) {
+                                        stringResource(R.string.chat_shared_text_target_new_chat_hint)
+                                    } else {
+                                        stringResource(R.string.chat_shared_file_target_new_chat_hint)
+                                    },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -173,29 +184,34 @@ fun SharedFileTargetDialog(
 @Composable
 fun SharedIncomingContentHandler(
     sharedFiles: List<Uri>?,
-    sharedLinks: List<String>?,
+    sharedFileText: String?,
+    sharedText: String?,
     chatHistories: List<ChatHistory>,
     currentChatId: String?,
-    onHandleSharedFiles: (List<Uri>, String?) -> Unit,
-    onHandleSharedLinks: (List<String>) -> Unit,
+    onHandleSharedFiles: (List<Uri>, String?, String?) -> Unit,
+    onHandleSharedText: (String, String?) -> Unit,
     onClearSharedFiles: () -> Unit,
-    onClearSharedLinks: () -> Unit,
+    onClearSharedText: () -> Unit,
 ) {
     var pendingSharedFilesForSelection by remember { mutableStateOf<List<Uri>?>(null) }
+    var pendingSharedFileTextForSelection by remember { mutableStateOf<String?>(null) }
+    var pendingSharedTextForSelection by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(sharedFiles) {
+    LaunchedEffect(sharedFiles, sharedFileText) {
         if (!sharedFiles.isNullOrEmpty()) {
             pendingSharedFilesForSelection = sharedFiles
+            pendingSharedFileTextForSelection = sharedFileText
         }
     }
 
-    LaunchedEffect(sharedLinks, pendingSharedFilesForSelection) {
+    LaunchedEffect(sharedText, pendingSharedFilesForSelection) {
         if (pendingSharedFilesForSelection != null) {
             return@LaunchedEffect
         }
-        if (!sharedLinks.isNullOrEmpty()) {
-            onHandleSharedLinks(sharedLinks)
-            onClearSharedLinks()
+
+        val text = sharedText?.trim()
+        if (!text.isNullOrBlank()) {
+            pendingSharedTextForSelection = text
         }
     }
 
@@ -210,9 +226,20 @@ fun SharedIncomingContentHandler(
 
     fun consumePendingSharedFiles(targetChatId: String?) {
         val uris = pendingSharedFilesForSelection ?: return
+        val text = pendingSharedFileTextForSelection?.trim()
         pendingSharedFilesForSelection = null
+        pendingSharedFileTextForSelection = null
         onClearSharedFiles()
-        onHandleSharedFiles(uris, targetChatId)
+        onHandleSharedFiles(uris, targetChatId, text)
+    }
+
+    fun consumePendingSharedText(targetChatId: String?) {
+        val text = pendingSharedTextForSelection?.trim()
+        if (text.isNullOrBlank()) return
+
+        pendingSharedTextForSelection = null
+        onClearSharedText()
+        onHandleSharedText(text, targetChatId)
     }
 
     pendingSharedFilesForSelection?.let { sharedUris ->
@@ -224,7 +251,23 @@ fun SharedIncomingContentHandler(
             onSelectChat = { chatId -> consumePendingSharedFiles(targetChatId = chatId) },
             onDismiss = {
                 pendingSharedFilesForSelection = null
+                pendingSharedFileTextForSelection = null
                 onClearSharedFiles()
+            }
+        )
+    }
+
+    pendingSharedTextForSelection?.let {
+        SharedFileTargetDialog(
+            fileCount = 0,
+            isTextShare = true,
+            recentChats = recentChatTargets,
+            currentChatId = currentChatId,
+            onCreateNewChat = { consumePendingSharedText(targetChatId = null) },
+            onSelectChat = { chatId -> consumePendingSharedText(targetChatId = chatId) },
+            onDismiss = {
+                pendingSharedTextForSelection = null
+                onClearSharedText()
             }
         )
     }

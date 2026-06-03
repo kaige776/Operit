@@ -1060,8 +1060,11 @@ class ConversationService(
         val targetLanguage = when (currentLanguage) {
             LocaleUtils.LanguageCodes.CHINESE -> context.getString(R.string.conversation_language_chinese)
             LocaleUtils.LanguageCodes.ENGLISH -> "English"
+            LocaleUtils.LanguageCodes.KOREAN -> "Korean"
+            LocaleUtils.LanguageCodes.SPANISH -> "Spanish"
             LocaleUtils.LanguageCodes.MALAY -> "Malay"
             LocaleUtils.LanguageCodes.INDONESIAN -> "Indonesian"
+            LocaleUtils.LanguageCodes.PORTUGUESE_BRAZIL -> "Portuguese (Brazil)"
             else -> context.getString(R.string.conversation_language_chinese) // 默认翻译为中文
         }
         

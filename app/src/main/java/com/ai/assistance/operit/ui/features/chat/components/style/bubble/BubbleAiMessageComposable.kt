@@ -119,7 +119,7 @@ fun BubbleAiMessageComposable(
     
     val showModelProvider by preferencesManager.showModelProvider.collectAsState(initial = false)
     val showModelName by preferencesManager.showModelName.collectAsState(initial = false)
-    val showRoleName by preferencesManager.showRoleName.collectAsState(initial = false)
+    val showRoleName by preferencesManager.showRoleName.collectAsState(initial = true)
     val toolCollapseMode by displayPreferencesManager.toolCollapseMode.collectAsState(initial = ToolCollapseMode.ALL)
     
     // 根据角色名获取头像

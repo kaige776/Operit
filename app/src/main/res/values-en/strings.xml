@@ -722,6 +722,12 @@
     <string name="disable_settings_group">Disable Options</string>
     <string name="disable_settings_group_desc">This group manages disable toggles that affect response behavior.</string>
     <string name="manage_tools">Manage Tools</string>
+    <string name="agent_menu_tools">Tools</string>
+    <string name="agent_menu_behavior">Behavior</string>
+    <string name="agent_menu_plugins">Plugins</string>
+    <string name="agent_menu_permission_disabled">Disabled</string>
+    <string name="agent_menu_behavior_streaming">Streaming</string>
+    <string name="agent_menu_behavior_non_streaming">Non-streaming</string>
     <string name="tool_prompt_manager_title">Tool Prompt Manager</string>
     <string name="manage_packages">Manage Packages</string>
     <string name="disable_user_preference_description">Disable User Preference Description</string>
@@ -776,6 +782,11 @@
 
     <!-- Theme Settings Screen -->
     <string name="theme_title_mode">Theme Mode</string>
+    <string name="theme_tab_basic">Basic</string>
+    <string name="theme_tab_background">Background</string>
+    <string name="theme_tab_chat">Chat</string>
+    <string name="theme_tab_input">Input</string>
+    <string name="theme_tab_interface">Interface</string>
     <string name="theme_system_title">System Theme</string>
     <string name="theme_follow_system">Follow System Theme</string>
     <string name="theme_follow_system_desc">When enabled, theme will automatically switch based on system dark mode</string>
@@ -1368,7 +1379,9 @@
     <string name="new_conversation">New Conversation</string>
     <string name="chat_shared_file_target_dialog_title">Choose a conversation</string>
     <string name="chat_shared_file_target_dialog_message">Detected %1$d file(s) to attach. Choose one of the 5 most recent conversations, or create a new one.</string>
+    <string name="chat_shared_text_target_dialog_message">Detected shared text. Choose one of the 5 most recent conversations, or create a new one.</string>
     <string name="chat_shared_file_target_new_chat_hint">Create a new conversation and attach these files there</string>
+    <string name="chat_shared_text_target_new_chat_hint">Create a new conversation and place the text in the input box</string>
     <string name="chat_shared_file_target_recent_section">Recent 5 conversations</string>
     <string name="chat_shared_file_target_current_badge">Current conversation</string>
     <string name="chat_shared_file_target_no_recent">No recent conversations are available yet. You can create a new one directly.</string>
@@ -2604,13 +2617,13 @@
     <string name="speech_services_mimo_api_key_placeholder">Enter your MiMo API key</string>
     <string name="speech_services_mimo_model_name">model</string>
     <string name="speech_services_mimo_model_name_placeholder">e.g.: mimo-v2.5-tts</string>
-    <string name="speech_services_mimo_model_name_hint">Leave blank to use mimo-v2.5-tts. Use mimo-v2.5-tts for preset voices.</string>
+    <string name="speech_services_mimo_model_name_hint">Leave blank to use mimo-v2.5-tts. Use mimo-v2.5-tts for preset voices, or mimo-v2.5-tts-voiceclone for voice cloning.</string>
     <string name="speech_services_mimo_voice_select">Select preset voice</string>
     <string name="speech_services_mimo_voice_select_icon">Select voice</string>
     <string name="speech_services_mimo_voice_custom">Custom voice</string>
     <string name="speech_services_mimo_voice_id">voice</string>
-    <string name="speech_services_mimo_voice_id_placeholder">e.g.: mimo_default, 冰糖, Mia, Chloe</string>
-    <string name="speech_services_mimo_voice_id_hint">Preset voices: mimo_default, 冰糖, 茉莉, 苏打, 白桦, Mia, Chloe, Milo, Dean.</string>
+    <string name="speech_services_mimo_voice_id_placeholder">e.g.: mimo_default, 冰糖, or data:audio/mpeg;base64,...</string>
+    <string name="speech_services_mimo_voice_id_hint">Preset voices: mimo_default, 冰糖, 茉莉, 苏打, 白桦, Mia, Chloe, Milo, Dean. For voiceclone, enter the full Base64 audio sample.</string>
     <string name="speech_services_doubao_config">Doubao TTS Configuration</string>
     <string name="speech_services_doubao_url">URL</string>
     <string name="speech_services_doubao_url_placeholder">https://openspeech.bytedance.com/api/v1/tts</string>

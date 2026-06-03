@@ -26,6 +26,13 @@ import com.ai.assistance.operit.ui.theme.getTextColorForBackground
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
+internal enum class ThemeSettingsColorContentMode {
+    PALETTE,
+    INPUT,
+    INTERFACE,
+}
+
+
 @Composable
 internal fun ThemeSettingsColorCustomizationSection(
     cardColors: CardColors,
@@ -80,12 +87,18 @@ internal fun ThemeSettingsColorCustomizationSection(
     onOnColorModeInputChange: (String) -> Unit,
     onShowColorPicker: (String) -> Unit,
     onShowSaveSuccessMessage: () -> Unit,
+    contentMode: ThemeSettingsColorContentMode,
 ) {
+    val showPaletteControls = contentMode == ThemeSettingsColorContentMode.PALETTE
+    val showInterfaceControls = contentMode == ThemeSettingsColorContentMode.INTERFACE
+    val showInputControls = contentMode == ThemeSettingsColorContentMode.INPUT
+
     ThemeSettingsSectionTitle(
         title = stringResource(id = R.string.theme_title_color),
         icon = Icons.Default.ColorLens,
     )
 
+    if (showInterfaceControls) {
     Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = cardColors) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -218,7 +231,9 @@ internal fun ThemeSettingsColorCustomizationSection(
             }
         }
     }
+    }
 
+    if (showInterfaceControls) {
     Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = cardColors) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -295,7 +310,9 @@ internal fun ThemeSettingsColorCustomizationSection(
             }
         }
     }
+    }
 
+    if (showInterfaceControls) {
     Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = cardColors) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -464,7 +481,9 @@ internal fun ThemeSettingsColorCustomizationSection(
             }
         }
     }
+    }
 
+    if (showInterfaceControls) {
     Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = cardColors) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -531,7 +550,9 @@ internal fun ThemeSettingsColorCustomizationSection(
             }
         }
     }
+    }
 
+    if (showInputControls) {
     Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = cardColors) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -665,7 +686,9 @@ internal fun ThemeSettingsColorCustomizationSection(
             }
         }
     }
+    }
 
+    if (showInterfaceControls) {
     Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = cardColors) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -775,7 +798,9 @@ internal fun ThemeSettingsColorCustomizationSection(
             )
         }
     }
+    }
 
+    if (showPaletteControls) {
     Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = cardColors) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -969,4 +994,6 @@ internal fun ThemeSettingsColorCustomizationSection(
             }
         }
     }
+}
+
 }

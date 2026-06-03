@@ -15,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import android.content.Intent
 import kotlinx.coroutines.CancellationException
@@ -133,6 +135,12 @@ class WorkflowRepository(private val context: Context) {
         return File(getWorkflowDirectory(), "$workflowId.json")
     }
 
+    private fun readWorkflowFile(file: File, workflowId: String = file.nameWithoutExtension): Workflow {
+        val element = json.parseToJsonElement(file.readText())
+        val workflowElement = JsonObject((element as JsonObject) + ("id" to JsonPrimitive(workflowId)))
+        return json.decodeFromJsonElement(Workflow.serializer(), workflowElement)
+    }
+
     private fun getExecutionLogDirectory(workflowId: String, createIfMissing: Boolean = true): File {
         val dir = File(getWorkflowDirectory(), "$EXECUTION_LOG_SUB_DIR/$workflowId")
         if (createIfMissing && !dir.exists()) {
@@ -175,8 +183,7 @@ class WorkflowRepository(private val context: Context) {
                 file.isFile && file.extension == "json"
             }?.mapNotNull { file ->
                 try {
-                    val content = file.readText()
-                    json.decodeFromString<Workflow>(content)
+                    readWorkflowFile(file)
                 } catch (e: Exception) {
                     AppLogger.e(TAG, "Failed to parse workflow file: ${file.name}", e)
                     null
@@ -200,8 +207,7 @@ class WorkflowRepository(private val context: Context) {
                 return@withContext Result.success(null)
             }
             
-            val content = file.readText()
-            val workflow = json.decodeFromString<Workflow>(content)
+            val workflow = readWorkflowFile(file, id)
             Result.success(workflow)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to get workflow by id: $id", e)
@@ -234,6 +240,7 @@ class WorkflowRepository(private val context: Context) {
      */
     suspend fun createWorkflow(workflow: Workflow): Result<Workflow> = withContext(Dispatchers.IO) {
         try {
+            require(workflow.id.isNotBlank()) { "Workflow id cannot be empty" }
             val file = getWorkflowFile(workflow.id)
             val content = json.encodeToString(workflow)
             file.writeText(content)
@@ -259,6 +266,7 @@ class WorkflowRepository(private val context: Context) {
      */
     suspend fun updateWorkflow(workflow: Workflow): Result<Workflow> = withContext(Dispatchers.IO) {
         try {
+            require(workflow.id.isNotBlank()) { "Workflow id cannot be empty" }
             val updatedWorkflow = workflow.copy(updatedAt = System.currentTimeMillis())
             val file = getWorkflowFile(updatedWorkflow.id)
             val content = json.encodeToString(updatedWorkflow)

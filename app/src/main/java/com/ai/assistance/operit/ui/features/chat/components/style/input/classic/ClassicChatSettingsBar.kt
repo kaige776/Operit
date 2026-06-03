@@ -24,7 +24,6 @@ import androidx.compose.material.icons.outlined.Portrait
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Save
-import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.TipsAndUpdates
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Whatshot
@@ -97,7 +96,7 @@ fun ClassicChatSettingsBar(
     onToggleFeature: (String) -> Unit,
     inputMenuRuntime: String = "main",
     permissionLevel: PermissionLevel,
-    onTogglePermission: () -> Unit,
+    onSetPermissionLevel: (PermissionLevel) -> Unit,
     enableThinkingMode: Boolean,
     onToggleThinkingMode: () -> Unit,
     thinkingQualityLevel: Int,
@@ -127,7 +126,6 @@ fun ClassicChatSettingsBar(
     disableUserPreferenceDescription: Boolean,
     onToggleDisableUserPreferenceDescription: () -> Unit,
     onManualMemoryUpdate: () -> Unit,
-    onManualSummarizeConversation: () -> Unit,
     characterCardBoundChatModelConfigId: String? = null,
     characterCardBoundChatModelIndex: Int = 0,
     characterCardBoundMemoryProfileId: String? = null
@@ -138,11 +136,14 @@ fun ClassicChatSettingsBar(
 
     // 用于显示详情说明的状态，现在使用一个Pair来保存标题和内容
     var infoPopupContent by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showMemorySection by remember { mutableStateOf(false) }
+    var showModelSection by remember { mutableStateOf(false) }
+    var showToolsSection by remember { mutableStateOf(false) }
+    var showBehaviorSection by remember { mutableStateOf(false) }
+    var showPluginsSection by remember { mutableStateOf(false) }
     var showModelDropdown by remember { mutableStateOf(false) }
-    var showPromptDropdown by remember { mutableStateOf(false) }
     var showMemoryDropdown by remember { mutableStateOf(false) }
     var showThinkingDropdown by remember { mutableStateOf(false) }
-    var showDisableSettingsDropdown by remember { mutableStateOf(false) }
     var showToolPromptManagerDialog by remember { mutableStateOf(false) }
     var showCharacterCardBindingSwitchConfirm by remember { mutableStateOf(false) }
     var pendingCharacterCardModelSelection by remember { mutableStateOf<Pair<String, Int>?>(null) }
@@ -209,6 +210,29 @@ fun ClassicChatSettingsBar(
     }
     val inputMenuTogglesBySlot = inputMenuToggles.groupBy { InputMenuToggleSlots.normalize(it.slot) }
     val defaultInputMenuToggles = inputMenuTogglesBySlot[InputMenuToggleSlots.DEFAULT].orEmpty()
+    val generalInputMenuToggles = inputMenuTogglesBySlot[InputMenuToggleSlots.GENERAL].orEmpty()
+    val pluginToggleCount = generalInputMenuToggles.size + defaultInputMenuToggles.size
+    val pluginEnabledCount = (generalInputMenuToggles + defaultInputMenuToggles).count { it.isChecked }
+    val currentProfileName =
+        preferenceProfiles.find { it.id == effectiveCurrentProfileId }?.name ?: stringResource(R.string.not_selected)
+    val currentConfig = configSummaries.find { it.id == effectiveCurrentConfigMapping.configId }
+    val currentModelName =
+        currentConfig?.let { config ->
+            val validIndex = getValidModelIndex(config.modelName, effectiveCurrentConfigMapping.modelIndex)
+            getModelByIndex(config.modelName, validIndex).ifEmpty { stringResource(R.string.not_selected) }
+        } ?: stringResource(R.string.not_selected)
+    val toolPermissionText =
+        when (if (enableTools) permissionLevel else PermissionLevel.FORBID) {
+            PermissionLevel.FORBID -> stringResource(R.string.agent_menu_permission_disabled)
+            PermissionLevel.ASK -> stringResource(R.string.permission_level_ask)
+            PermissionLevel.ALLOW -> stringResource(R.string.permission_level_allow)
+        }
+    val behaviorSummary =
+        if (disableStreamOutput) {
+            stringResource(R.string.agent_menu_behavior_non_streaming)
+        } else {
+            stringResource(R.string.agent_menu_behavior_streaming)
+        }
 
     val buildMemoryAutoSaveDetail: suspend () -> String = {
         val pendingCandidateCount =
@@ -336,7 +360,20 @@ fun ClassicChatSettingsBar(
     // The passed modifier will align this Box within its parent.
     Box(modifier = modifier.padding(end = chatSettingsBarRightMargin.dp)) {
         IconButton(
-            onClick = { showMenu = !showMenu },
+            onClick = {
+                showMenu = !showMenu
+                if (showMenu) {
+                    return@IconButton
+                }
+                showModelDropdown = false
+                showMemoryDropdown = false
+                showThinkingDropdown = false
+                showMemorySection = false
+                showModelSection = false
+                showToolsSection = false
+                showBehaviorSection = false
+                showPluginsSection = false
+            },
             modifier = Modifier
                 .padding(vertical = 8.dp, horizontal = 2.dp)
                 .size(28.dp)
@@ -356,9 +393,13 @@ fun ClassicChatSettingsBar(
                 onDismissRequest = {
                     showMenu = false
                     showModelDropdown = false // 关闭主菜单时也关闭模型菜单
-                    showPromptDropdown = false
                     showMemoryDropdown = false
                     showThinkingDropdown = false
+                    showMemorySection = false
+                    showModelSection = false
+                    showToolsSection = false
+                    showBehaviorSection = false
+                    showPluginsSection = false
                 },
                     properties =
                             PopupProperties(
@@ -385,8 +426,113 @@ fun ClassicChatSettingsBar(
                                         Modifier.padding(vertical = 4.dp)
                                 .verticalScroll(rememberScrollState())
                         ) {
-                            // ========== 基础配置类 ==========
-                            // 模型选择器
+                            ClassicSettingsFoldSection(
+                                title = stringResource(R.string.memory),
+                                value = currentProfileName,
+                                icon = Icons.Outlined.Portrait,
+                                expanded = showMemorySection,
+                                showTopDivider = false,
+                                onExpandedChange = {
+                                    showMemorySection = it
+                                    if (!it) {
+                                        showMemoryDropdown = false
+                                    }
+                                }
+                            ) {
+                            MemorySelectorItem(
+                                preferenceProfiles = preferenceProfiles,
+                                currentProfileId = effectiveCurrentProfileId,
+                                onSelectMemory = onSelectMemory,
+                                expanded = showMemoryDropdown,
+                                onExpandedChange = { showMemoryDropdown = it },
+                                onInfoClick = {
+                                        infoPopupContent =
+                                                context.getString(R.string.memory) to context.getString(R.string.memory_desc)
+                                        showMenu = false
+                                    },
+                                    onManageClick = {
+                                        onNavigateToUserPreferences()
+                                    showMenu = false
+                                    }
+                            )
+                            inputMenuTogglesBySlot[InputMenuToggleSlots.MEMORY].orEmpty().forEach { toggle ->
+                                InputMenuToggleSettingItem(
+                                    toggle = toggle,
+                                    onInfoClick = { title, description ->
+                                        infoPopupContent = title to description
+                                        showMenu = false
+                                    }
+                                )
+                            }
+                            SettingItem(
+                                title = stringResource(R.string.memory_auto_update),
+                                    icon =
+                                            if (enableMemoryAutoUpdate) Icons.Rounded.Save
+                                            else Icons.Outlined.Save,
+                                    iconTint =
+                                            if (enableMemoryAutoUpdate)
+                                                    MaterialTheme.colorScheme.primary
+                                            else
+                                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                            alpha = 0.7f
+                                                    ),
+                                isChecked = enableMemoryAutoUpdate,
+                                onToggle = onToggleMemoryAutoUpdate,
+                                onInfoClick = {
+                                    scope.launch {
+                                        infoPopupContent =
+                                            context.getString(R.string.memory_auto_update) to
+                                                buildMemoryAutoSaveDetail()
+                                    }
+                                    showMenu = false
+                                }
+                            )
+                            ActionSettingItem(
+                                title = stringResource(R.string.manual_memory_update),
+                                icon = Icons.Outlined.Save,
+                                iconTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                onClick = {
+                                    onManualMemoryUpdate()
+                                    showMenu = false
+                                },
+                                onInfoClick = {
+                                    infoPopupContent =
+                                        context.getString(R.string.manual_memory_update) to context.getString(R.string.manual_memory_update_desc)
+                                    showMenu = false
+                                }
+                            )
+                            SettingItem(
+                                title = stringResource(R.string.disable_user_preference_description),
+                                icon =
+                                        if (disableUserPreferenceDescription) Icons.Outlined.Block
+                                        else Icons.Outlined.Portrait,
+                                iconTint =
+                                        if (disableUserPreferenceDescription) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                isChecked = disableUserPreferenceDescription,
+                                onToggle = onToggleDisableUserPreferenceDescription,
+                                onInfoClick = {
+                                    infoPopupContent =
+                                        context.getString(R.string.disable_user_preference_description) to
+                                            context.getString(R.string.disable_user_preference_description_desc)
+                                    showMenu = false
+                                }
+                            )
+                            }
+
+                            ClassicSettingsFoldSection(
+                                title = stringResource(R.string.model),
+                                value = currentModelName,
+                                icon = Icons.Outlined.DataObject,
+                                expanded = showModelSection,
+                                onExpandedChange = {
+                                    showModelSection = it
+                                    if (!it) {
+                                        showModelDropdown = false
+                                        showThinkingDropdown = false
+                                    }
+                                }
+                            ) {
                             ModelSelectorItem(
                                 configSummaries = configSummaries,
                                 currentConfigMapping = effectiveCurrentConfigMapping,
@@ -403,7 +549,6 @@ fun ClassicChatSettingsBar(
                                         showMenu = false
                                     }
                             )
-
                             inputMenuTogglesBySlot[InputMenuToggleSlots.MODEL].orEmpty().forEach { toggle ->
                                 InputMenuToggleSettingItem(
                                     toggle = toggle,
@@ -413,35 +558,6 @@ fun ClassicChatSettingsBar(
                                     }
                                 )
                             }
-
-                            // 记忆选择器
-                            MemorySelectorItem(
-                                preferenceProfiles = preferenceProfiles,
-                                currentProfileId = effectiveCurrentProfileId,
-                                onSelectMemory = onSelectMemory,
-                                expanded = showMemoryDropdown,
-                                onExpandedChange = { showMemoryDropdown = it },
-                                onInfoClick = {
-                                        infoPopupContent =
-                                                context.getString(R.string.memory) to context.getString(R.string.memory_desc)
-                                        showMenu = false
-                                    },
-                                    onManageClick = {
-                                        onNavigateToUserPreferences()
-                                    showMenu = false
-                                }
-                            )
-
-                            inputMenuTogglesBySlot[InputMenuToggleSlots.MEMORY].orEmpty().forEach { toggle ->
-                                InputMenuToggleSettingItem(
-                                    toggle = toggle,
-                                    onInfoClick = { title, description ->
-                                        infoPopupContent = title to description
-                                        showMenu = false
-                                    }
-                                )
-                            }
-
                             ThinkingSettingsItem(
                                 enableThinkingMode = enableThinkingMode,
                                 onToggleThinkingMode = onToggleThinkingMode,
@@ -470,54 +586,6 @@ fun ClassicChatSettingsBar(
                                     showMenu = false
                                 }
                             )
-
-                            DisableSettingsGroupItem(
-                                disableStreamOutput = disableStreamOutput,
-                                onToggleDisableStreamOutput = onToggleDisableStreamOutput,
-                                enableTools = enableTools,
-                                onToggleTools = onToggleTools,
-                                disableUserPreferenceDescription = disableUserPreferenceDescription,
-                                onToggleDisableUserPreferenceDescription =
-                                        onToggleDisableUserPreferenceDescription,
-                                expanded = showDisableSettingsDropdown,
-                                onExpandedChange = { showDisableSettingsDropdown = it },
-                                onInfoClick = {
-                                    infoPopupContent =
-                                        context.getString(R.string.disable_settings_group) to context.getString(R.string.disable_settings_group_desc)
-                                    showMenu = false
-                                },
-                                onDisableStreamOutputInfoClick = {
-                                    infoPopupContent =
-                                        context.getString(R.string.disable_stream_output) to context.getString(R.string.disable_stream_output_desc)
-                                    showMenu = false
-                                },
-                                onDisableToolsInfoClick = {
-                                    infoPopupContent =
-                                        context.getString(R.string.disable_tools) to context.getString(R.string.disable_tools_desc)
-                                    showMenu = false
-                                },
-                                onDisableUserPreferenceDescriptionInfoClick = {
-                                    infoPopupContent =
-                                        context.getString(R.string.disable_user_preference_description) to context.getString(R.string.disable_user_preference_description_desc)
-                                    showMenu = false
-                                },
-                                onManageToolsClick = {
-                                    showToolPromptManagerDialog = true
-                                    showMenu = false
-                                }
-                            )
-
-                            inputMenuTogglesBySlot[InputMenuToggleSlots.TOOLS].orEmpty().forEach { toggle ->
-                                InputMenuToggleSettingItem(
-                                    toggle = toggle,
-                                    onInfoClick = { title, description ->
-                                        infoPopupContent = title to description
-                                        showMenu = false
-                                    }
-                                )
-                            }
-
-                            // Max模式
                             SettingItem(
                                 title = stringResource(R.string.max_mode_title),
                                 icon = if (enableMaxContextMode) Icons.Rounded.Whatshot else Icons.Outlined.Whatshot,
@@ -543,85 +611,26 @@ fun ClassicChatSettingsBar(
                                     showMenu = false
                                 }
                             )
+                            }
 
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 2.dp),
-                                thickness = 0.5.dp,
-                                    color =
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                    alpha = 0.2f
-                                            )
-                            )
-
-                            // ========== 记忆相关 ==========
-                            // 记忆自动更新
-                            SettingItem(
-                                title = stringResource(R.string.memory_auto_update),
-                                    icon =
-                                            if (enableMemoryAutoUpdate) Icons.Rounded.Save
-                                            else Icons.Outlined.Save,
-                                    iconTint =
-                                            if (enableMemoryAutoUpdate)
-                                                    MaterialTheme.colorScheme.primary
-                                            else
-                                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                            alpha = 0.7f
-                                                    ),
-                                isChecked = enableMemoryAutoUpdate,
-                                onToggle = onToggleMemoryAutoUpdate,
-                                onInfoClick = {
-                                    scope.launch {
-                                        infoPopupContent =
-                                            context.getString(R.string.memory_auto_update) to
-                                                buildMemoryAutoSaveDetail()
-                                    }
+                            ClassicSettingsFoldSection(
+                                title = stringResource(R.string.agent_menu_tools),
+                                value = toolPermissionText,
+                                icon = Icons.Outlined.Security,
+                                expanded = showToolsSection,
+                                onExpandedChange = { showToolsSection = it }
+                            ) {
+                            ToolPermissionSettingItem(
+                                enableTools = enableTools,
+                                permissionLevel = permissionLevel,
+                                onToggleTools = onToggleTools,
+                                onSetPermissionLevel = onSetPermissionLevel,
+                                onManageToolsClick = {
+                                    showToolPromptManagerDialog = true
                                     showMenu = false
                                 }
                             )
-
-                            // 手动更新记忆
-                            ActionSettingItem(
-                                title = stringResource(R.string.manual_memory_update),
-                                icon = Icons.Outlined.Save,
-                                iconTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                onClick = {
-                                    onManualMemoryUpdate()
-                                    showMenu = false
-                                },
-                                onInfoClick = {
-                                    infoPopupContent =
-                                        context.getString(R.string.manual_memory_update) to context.getString(R.string.manual_memory_update_desc)
-                                    showMenu = false
-                                }
-                            )
-
-                            // 手动总结对话
-                            ActionSettingItem(
-                                title = stringResource(R.string.manual_conversation_summary),
-                                icon = Icons.Outlined.History,
-                                iconTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                onClick = {
-                                    onManualSummarizeConversation()
-                                    showMenu = false
-                                },
-                                onInfoClick = {
-                                    infoPopupContent =
-                                        context.getString(R.string.manual_conversation_summary) to context.getString(R.string.manual_conversation_summary_desc)
-                                    showMenu = false
-                                }
-                            )
-
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 2.dp),
-                                thickness = 0.5.dp,
-                                    color =
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                    alpha = 0.2f
-                                            )
-                            )
-
-                            // ========== 输出相关 ==========
-                            inputMenuTogglesBySlot[InputMenuToggleSlots.GENERAL].orEmpty().forEach { toggle ->
+                            inputMenuTogglesBySlot[InputMenuToggleSlots.TOOLS].orEmpty().forEach { toggle ->
                                 InputMenuToggleSettingItem(
                                     toggle = toggle,
                                     onInfoClick = { title, description ->
@@ -630,8 +639,30 @@ fun ClassicChatSettingsBar(
                                     }
                                 )
                             }
+                            }
 
-                            // 自动朗读
+                            ClassicSettingsFoldSection(
+                                title = stringResource(R.string.agent_menu_behavior),
+                                value = behaviorSummary,
+                                icon = Icons.Outlined.Speed,
+                                expanded = showBehaviorSection,
+                                onExpandedChange = { showBehaviorSection = it }
+                            ) {
+                            SettingItem(
+                                title = stringResource(R.string.disable_stream_output),
+                                icon = if (disableStreamOutput) Icons.Outlined.Block else Icons.Outlined.Speed,
+                                iconTint =
+                                        if (disableStreamOutput) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                isChecked = disableStreamOutput,
+                                onToggle = onToggleDisableStreamOutput,
+                                onInfoClick = {
+                                    infoPopupContent =
+                                        context.getString(R.string.disable_stream_output) to
+                                            context.getString(R.string.disable_stream_output_desc)
+                                    showMenu = false
+                                }
+                            )
                             SettingItem(
                                 title = stringResource(R.string.auto_read_message),
                                     icon =
@@ -652,17 +683,24 @@ fun ClassicChatSettingsBar(
                                     showMenu = false
                                 }
                             )
+                            }
 
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 2.dp),
-                                thickness = 0.5.dp,
-                                    color =
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                    alpha = 0.2f
-                                            )
-                            )
-
-                            // ========== AI功能类 ==========
+                            ClassicSettingsFoldSection(
+                                title = stringResource(R.string.agent_menu_plugins),
+                                value = "$pluginEnabledCount/$pluginToggleCount",
+                                icon = Icons.Outlined.Hub,
+                                expanded = showPluginsSection,
+                                onExpandedChange = { showPluginsSection = it }
+                            ) {
+                            generalInputMenuToggles.forEach { toggle ->
+                                InputMenuToggleSettingItem(
+                                    toggle = toggle,
+                                    onInfoClick = { title, description ->
+                                        infoPopupContent = title to description
+                                        showMenu = false
+                                    }
+                                )
+                            }
                             defaultInputMenuToggles.forEach { toggle ->
                                 InputMenuToggleSettingItem(
                                     toggle = toggle,
@@ -672,40 +710,7 @@ fun ClassicChatSettingsBar(
                                     }
                                 )
                             }
-
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 2.dp),
-                                thickness = 0.5.dp,
-                                    color =
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                    alpha = 0.2f
-                                            )
-                            )
-
-                            // ========== 权限与工具 ==========
-
-                            // 自动批准
-                            SettingItem(
-                                title = stringResource(R.string.auto_approve),
-                                    icon =
-                                            if (permissionLevel == PermissionLevel.ALLOW)
-                                                    Icons.Rounded.Security
-                                            else Icons.Outlined.Security,
-                                    iconTint =
-                                            if (permissionLevel == PermissionLevel.ALLOW)
-                                                    MaterialTheme.colorScheme.primary
-                                            else
-                                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                            alpha = 0.7f
-                                                    ),
-                                isChecked = permissionLevel == PermissionLevel.ALLOW,
-                                onToggle = onTogglePermission,
-                                onInfoClick = {
-                                        infoPopupContent =
-                                                context.getString(R.string.auto_approve) to context.getString(R.string.auto_approve_desc)
-                                    showMenu = false
-                                }
-                            )
+                            }
                         }
                     }
                 }
@@ -1013,144 +1018,179 @@ private fun InputMenuToggleSettingItem(
 }
 
 @Composable
-private fun DisableSettingsGroupItem(
-    disableStreamOutput: Boolean,
-    onToggleDisableStreamOutput: () -> Unit,
-    enableTools: Boolean,
-    onToggleTools: () -> Unit,
-    disableUserPreferenceDescription: Boolean,
-    onToggleDisableUserPreferenceDescription: () -> Unit,
+private fun ClassicSettingsFoldSection(
+    title: String,
+    value: String,
+    icon: ImageVector,
     expanded: Boolean,
+    showTopDivider: Boolean = true,
     onExpandedChange: (Boolean) -> Unit,
-    onInfoClick: () -> Unit,
-    onDisableStreamOutputInfoClick: () -> Unit,
-    onDisableToolsInfoClick: () -> Unit,
-    onDisableUserPreferenceDescriptionInfoClick: () -> Unit,
-    onManageToolsClick: () -> Unit
+    content: @Composable ColumnScope.() -> Unit
 ) {
-    val disabledStates =
-            listOf(
-                            disableStreamOutput,
-                            !enableTools,
-                            disableUserPreferenceDescription
-                    )
-    val disabledCount = disabledStates.count { it }
-    val summaryText = "$disabledCount/${disabledStates.size}"
-    val expandStateDesc = if (expanded) stringResource(R.string.expanded) else stringResource(R.string.collapsed)
-    val accessibilityDesc = "${stringResource(R.string.disable_settings_group)}: $summaryText, $expandStateDesc"
-
     Column(modifier = Modifier.fillMaxWidth()) {
+        if (showTopDivider) {
+            HorizontalDivider(
+                modifier = Modifier.padding(top = 2.dp),
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f)
+            )
+        }
         Row(
-                modifier =
-                        Modifier.fillMaxWidth()
-                                .heightIn(min = 36.dp)
-                                .semantics { contentDescription = accessibilityDesc }
-                                .clickable { onExpandedChange(!expanded) }
-                                .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            modifier =
+                Modifier.fillMaxWidth()
+                    .heightIn(min = 36.dp)
+                    .clickable { onExpandedChange(!expanded) }
+                    .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Outlined.Block,
+                imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 modifier = Modifier.size(16.dp).clearAndSetSemantics {}
             )
-            IconButton(onClick = onInfoClick, modifier = Modifier.size(24.dp)) {
-                Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = stringResource(R.string.details),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-            Row(
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.disable_settings_group) + ":",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.clearAndSetSemantics {}
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = summaryText,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clearAndSetSemantics {}
-                )
-            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = value,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End
+            )
+            Spacer(modifier = Modifier.width(6.dp))
             Icon(
-                    imageVector =
-                            if (expanded) Icons.Filled.KeyboardArrowUp
-                            else Icons.Filled.KeyboardArrowDown,
+                imageVector =
+                    if (expanded) Icons.Filled.KeyboardArrowUp
+                    else Icons.Filled.KeyboardArrowDown,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp)
             )
         }
-
         if (expanded) {
             Column(
-                    modifier =
-                            Modifier.fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                                    .padding(horizontal = 12.dp)
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                        .padding(bottom = 4.dp),
+                content = content
+            )
+        }
+    }
+}
+
+@Composable
+private fun ToolPermissionSettingItem(
+    enableTools: Boolean,
+    permissionLevel: PermissionLevel,
+    onToggleTools: () -> Unit,
+    onSetPermissionLevel: (PermissionLevel) -> Unit,
+    onManageToolsClick: () -> Unit
+) {
+    val selectedLevel = if (enableTools) permissionLevel else PermissionLevel.FORBID
+
+    Column(
+        modifier =
+            Modifier.fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.permission_level),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                SettingItem(
-                    title = stringResource(R.string.disable_stream_output),
-                        icon = if (disableStreamOutput) Icons.Outlined.Block else Icons.Outlined.Speed,
-                        iconTint =
-                                if (disableStreamOutput) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    isChecked = disableStreamOutput,
-                    onToggle = onToggleDisableStreamOutput,
-                    onInfoClick = onDisableStreamOutputInfoClick
-                )
-
-                SettingItem(
-                    title = stringResource(R.string.disable_tools),
-                        icon = if (!enableTools) Icons.Outlined.Block else Icons.Outlined.Build,
-                        iconTint =
-                                if (!enableTools) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    isChecked = !enableTools,
-                    onToggle = onToggleTools,
-                    onInfoClick = onDisableToolsInfoClick
-                )
-
-                SettingItem(
-                    title = stringResource(R.string.disable_user_preference_description),
-                        icon =
-                                if (disableUserPreferenceDescription) Icons.Outlined.Block
-                                else Icons.Outlined.Portrait,
-                        iconTint =
-                                if (disableUserPreferenceDescription) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    isChecked = disableUserPreferenceDescription,
-                    onToggle = onToggleDisableUserPreferenceDescription,
-                    onInfoClick = onDisableUserPreferenceDescriptionInfoClick
-                )
-
+            listOf(PermissionLevel.FORBID, PermissionLevel.ASK, PermissionLevel.ALLOW).forEach { level ->
+                val isSelected = selectedLevel == level
+                val label =
+                    when (level) {
+                        PermissionLevel.FORBID -> stringResource(R.string.agent_menu_permission_disabled)
+                        PermissionLevel.ASK -> stringResource(R.string.permission_level_ask)
+                        PermissionLevel.ALLOW -> stringResource(R.string.permission_level_allow)
+                    }
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(30.dp)
-                        .clickable(onClick = onManageToolsClick),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .height(28.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primary
+                                else Color.Transparent
+                            )
+                            .border(
+                                1.dp,
+                                if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.65f),
+                                RoundedCornerShape(999.dp)
+                            )
+                            .padding(horizontal = 10.dp)
+                            .clickable {
+                                if (!enableTools && level != PermissionLevel.FORBID) {
+                                    onToggleTools()
+                                }
+                                if (enableTools && level == PermissionLevel.FORBID) {
+                                    onToggleTools()
+                                }
+                                if (permissionLevel != level) {
+                                    onSetPermissionLevel(level)
+                                }
+                            },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = stringResource(R.string.manage_tools),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp
+                        text = label,
+                        color =
+                            if (isSelected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurface,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+                if (level != PermissionLevel.ALLOW) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
             }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(30.dp)
+                .clickable(onClick = onManageToolsClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = stringResource(R.string.manage_tools),
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 13.sp
+            )
         }
     }
 }

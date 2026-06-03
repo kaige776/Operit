@@ -9,7 +9,7 @@ import java.util.UUID
  */
 @Serializable
 data class Workflow(
-    val id: String = UUID.randomUUID().toString(),
+    val id: String,
     var name: String = "",
     var description: String = "",
     var nodes: List<WorkflowNode> = emptyList(),

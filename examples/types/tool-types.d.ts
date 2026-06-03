@@ -173,6 +173,7 @@ export interface ToolResultMap {
 
     // Music playback operations
     'music_play': MusicPlaybackResultData;
+    'music_play_queue': MusicPlaybackResultData;
     'music_pause': MusicPlaybackResultData;
     'music_resume': MusicPlaybackResultData;
     'music_stop': MusicPlaybackResultData;

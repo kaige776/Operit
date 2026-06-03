@@ -105,7 +105,7 @@ fun BubbleUserMessageComposable(
     val customUserAvatarUri by preferencesManager.customUserAvatarUri.collectAsState(initial = null)
     val globalUserAvatarUri by displayPreferencesManager.globalUserAvatarUri.collectAsState(initial = null)
     val globalUserName by displayPreferencesManager.globalUserName.collectAsState(initial = null)
-    val showUserName by preferencesManager.showUserName.collectAsState(initial = false)
+    val showUserName by preferencesManager.showUserName.collectAsState(initial = true)
     val avatarShapePref by preferencesManager.avatarShape.collectAsState(initial = UserPreferencesManager.AVATAR_SHAPE_CIRCLE)
     val avatarCornerRadius by preferencesManager.avatarCornerRadius.collectAsState(initial = 8f)
     val bubbleUserUseCustomFont by

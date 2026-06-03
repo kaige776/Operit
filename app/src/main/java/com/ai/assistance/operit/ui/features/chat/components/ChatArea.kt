@@ -59,8 +59,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
@@ -69,8 +67,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -1121,15 +1117,6 @@ private fun MessageCopyPreviewBottomSheet(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val focusRequester = remember { FocusRequester() }
-    var fieldValue by remember(text) {
-        mutableStateOf(
-            TextFieldValue(
-                text = text,
-                selection = TextRange(0, text.length),
-            )
-        )
-    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -1146,21 +1133,17 @@ private fun MessageCopyPreviewBottomSheet(
                 modifier = Modifier.padding(bottom = 12.dp)
             )
             BasicTextField(
-                value = fieldValue,
-                onValueChange = { fieldValue = it },
+                value = text,
+                onValueChange = {},
                 readOnly = true,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(
                     color = MaterialTheme.colorScheme.onSurface
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusRequester)
                     .heightIn(max = 520.dp)
                     .padding(bottom = 12.dp)
             )
-            LaunchedEffect(text) {
-                focusRequester.requestFocus()
-            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,

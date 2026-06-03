@@ -50,13 +50,11 @@ import com.ai.assistance.operit.ui.features.packages.screens.mcp.components.MCPI
 import com.ai.assistance.operit.ui.features.packages.screens.mcp.viewmodel.MCPDeployViewModel
 import com.ai.assistance.operit.ui.features.packages.screens.mcp.viewmodel.MCPViewModel
 import com.ai.assistance.operit.data.mcp.plugins.MCPBridge
-import com.ai.assistance.operit.data.mcp.plugins.MCPBridgeClient
-import com.ai.assistance.operit.data.mcp.plugins.ServiceInfo
-import com.google.gson.JsonParser
 import com.ai.assistance.operit.util.AppLogger
 import android.widget.Toast
 import androidx.compose.ui.res.stringResource
 import com.ai.assistance.operit.R
+import org.json.JSONObject
 
 import java.util.*
 import kotlinx.coroutines.*
@@ -124,8 +122,9 @@ fun MCPConfigScreen(
     var initialAutoStartPerformed = remember { mutableStateOf(false) }
 
     var isRefreshing by remember { mutableStateOf(false) }
-    var isToolsLoading by remember { mutableStateOf(false) }
+    var isToolsLoading by remember { mutableStateOf(true) }
     var pendingPluginId by remember { mutableStateOf<String?>(null) }
+    var toolRefreshTrigger by remember { mutableStateOf(0) }
 
     // Freeze list order within this screen session (avoid jumping when status changes)
     var lockedPluginOrder by remember { mutableStateOf<List<String>?>(null) }
@@ -190,6 +189,7 @@ fun MCPConfigScreen(
             }
 
             initialAutoStartPerformed.value = true
+            toolRefreshTrigger++
         }
     }
 
@@ -241,11 +241,12 @@ fun MCPConfigScreen(
     // Effect to fetch and display tools when MCP servers start
     val isPluginLoading by pluginLoadingState.isVisible.collectAsState()
     val wasPluginLoading = remember { mutableStateOf(isPluginLoading) }
-    var toolRefreshTrigger by remember { mutableStateOf(0) }
 
     LaunchedEffect(isPluginLoading) {
         if (wasPluginLoading.value && !isPluginLoading) {
             // Loading has just finished, trigger a refresh.
+            isToolsLoading = true
+            lockedPluginOrder = null
             toolRefreshTrigger++
         }
         wasPluginLoading.value = isPluginLoading
@@ -331,7 +332,11 @@ fun MCPConfigScreen(
         }
     }
 
-    LaunchedEffect(visiblePluginIds, mcpConfigSnapshot, toolRefreshTrigger) {
+    LaunchedEffect(toolRefreshTrigger) {
+        if (toolRefreshTrigger == 0) {
+            return@LaunchedEffect
+        }
+
         isToolsLoading = true
         if (visiblePluginIds.isEmpty()) {
             AppLogger.d("MCPConfigScreen", "No configured plugins, clearing tool list.")
@@ -340,14 +345,15 @@ fun MCPConfigScreen(
             return@LaunchedEffect
         }
 
-        // Give services a moment to initialize after starting
-        delay(1000)
-
         AppLogger.d("MCPConfigScreen", "Fetching tools for configured runtime-ready services...")
 
         val toolsMap = mutableMapOf<String, List<String>>()
 
         try {
+            val bridgeServiceTools = parseMCPServiceToolNames(
+                MCPBridge.getInstance(context).listMcpServices()
+            )
+
             for (pluginId in visiblePluginIds) {
                 try {
                     val metadata = mcpConfigSnapshot.pluginMetadata[pluginId]
@@ -358,14 +364,13 @@ fun MCPConfigScreen(
                         continue
                     }
 
-                    val client = MCPBridgeClient(context, pluginId)
-                    val serviceInfo = client.getServiceInfo()
+                    val toolNames = bridgeServiceTools[pluginId].orEmpty()
 
-                    if (serviceInfo != null && serviceInfo.toolNames.isNotEmpty()) {
-                        toolsMap[pluginId] = serviceInfo.toolNames
-                        AppLogger.d("MCPConfigScreen", "Plugin $pluginId has ${serviceInfo.toolNames.size} tools: ${serviceInfo.toolNames.joinToString(", ")}")
+                    if (toolNames.isNotEmpty()) {
+                        toolsMap[pluginId] = toolNames
+                        AppLogger.d("MCPConfigScreen", "Plugin $pluginId has ${toolNames.size} tools: ${toolNames.joinToString(", ")}")
                     } else {
-                        AppLogger.d("MCPConfigScreen", "Plugin $pluginId: no cached tools found.")
+                        AppLogger.d("MCPConfigScreen", "Plugin $pluginId: no tools found.")
                     }
                 } catch (e: Exception) {
                     AppLogger.e("MCPConfigScreen", "Error getting tools for plugin $pluginId: ${e.message}")
@@ -1075,79 +1080,80 @@ fun MCPConfigScreen(
     }
 
     val isAnyLoading =
-        isRefreshing || isToolsLoading || isImporting || isPluginLoading || pendingPluginId != null
+        isRefreshing || isImporting || isPluginLoading || pendingPluginId != null
 
-    val isEmptyLoading = visiblePluginIds.isEmpty() && (isAnyLoading || !initialAutoStartPerformed.value)
+    val isFullscreenLoading =
+        isToolsLoading || (visiblePluginIds.isEmpty() && (isAnyLoading || !initialAutoStartPerformed.value))
+
+    if (isFullscreenLoading) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
+        }
+        return
+    }
     
     CustomScaffold(
             floatingActionButton = {
-                if (!isEmptyLoading) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // 启动插件按钮
-                        FloatingActionButton(
-                            onClick = {
-                                if (!isAnyLoading) {
-                                    val lifecycleScope = activity?.lifecycleScope
-                                    if (lifecycleScope != null) {
-                                        pluginLoadingState.reset() // 确保每次都重置状态
-                                        pluginLoadingState.show()
-                                        pluginLoadingState.initializeMCPServer(context, lifecycleScope)
-                                    } else {
-                                        Toast.makeText(context, "Failed to start plugin loading", Toast.LENGTH_SHORT).show()
-                                    }
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // 启动插件按钮
+                    FloatingActionButton(
+                        onClick = {
+                            if (!isAnyLoading) {
+                                val lifecycleScope = activity?.lifecycleScope
+                                if (lifecycleScope != null) {
+                                    pluginLoadingState.reset() // 确保每次都重置状态
+                                    pluginLoadingState.show()
+                                    pluginLoadingState.initializeMCPServer(context, lifecycleScope)
+                                } else {
+                                    Toast.makeText(context, "Failed to start plugin loading", Toast.LENGTH_SHORT).show()
                                 }
-                            },
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(56.dp)
-                        ) {
-                            if (isAnyLoading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            } else {
-                                Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.start_plugin))
                             }
+                        },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        if (isAnyLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        } else {
+                            Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.start_plugin))
                         }
-                        
-                        // 市场按钮
-                        FloatingActionButton(
-                            onClick = onNavigateToMCPMarket,
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.size(56.dp)
-                        ) {
-                            Icon(Icons.Default.Store, contentDescription = stringResource(R.string.mcp_market))
-                        }
-                        
-                        // 导入按钮
-                        FloatingActionButton(
-                            onClick = {
-                                showImportDialog = true
-                            },
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(56.dp)
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.import_action))
-                        }
+                    }
+
+                    // 市场按钮
+                    FloatingActionButton(
+                        onClick = onNavigateToMCPMarket,
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Icon(Icons.Default.Store, contentDescription = stringResource(R.string.mcp_market))
+                    }
+
+                    // 导入按钮
+                    FloatingActionButton(
+                        onClick = {
+                            showImportDialog = true
+                        },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.import_action))
                     }
                 }
             }
     ) { padding ->
-        if (isEmptyLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        } else {
-            Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize()) {
                 // 主界面内容
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -1362,8 +1368,42 @@ fun MCPConfigScreen(
                 }
 
             }
+    }
+}
+
+private fun parseMCPServiceToolNames(listResponse: JSONObject?): Map<String, List<String>> {
+    if (listResponse?.optBoolean("success", false) != true) {
+        return emptyMap()
+    }
+
+    val services = listResponse.optJSONObject("result")?.optJSONArray("services") ?: return emptyMap()
+    val serviceTools = mutableMapOf<String, List<String>>()
+
+    for (serviceIndex in 0 until services.length()) {
+        val service = services.optJSONObject(serviceIndex) ?: continue
+        val serviceName = service.optString("name", "").trim()
+        if (serviceName.isEmpty()) {
+            continue
+        }
+
+        val tools = service.optJSONArray("tools") ?: continue
+        val toolNames = mutableListOf<String>()
+        for (toolIndex in 0 until tools.length()) {
+            val toolName = tools.optJSONObject(toolIndex)
+                ?.optString("name", "")
+                ?.trim()
+                .orEmpty()
+            if (toolName.isNotEmpty()) {
+                toolNames.add(toolName)
+            }
+        }
+
+        if (toolNames.isNotEmpty()) {
+            serviceTools[serviceName] = toolNames.distinct()
         }
     }
+
+    return serviceTools
 }
 
 // 从插件ID中提取显示名称

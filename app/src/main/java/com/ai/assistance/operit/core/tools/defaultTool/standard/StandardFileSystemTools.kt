@@ -302,6 +302,13 @@ open class StandardFileSystemTools(protected val context: Context) {
         return "rg $quotedArgs"
     }
 
+    private fun addWorkspaceSearchExcludes(args: MutableList<String>) {
+        listOf("!.backup/**", "!.operit/**", "!backup/**").forEach { glob ->
+            args.add("-g")
+            args.add(glob)
+        }
+    }
+
     private fun buildRipgrepCodeCommand(
         path: String,
         pattern: String,
@@ -320,6 +327,7 @@ open class StandardFileSystemTools(protected val context: Context) {
             "-C",
             contextLines.coerceAtLeast(0).toString()
         )
+        addWorkspaceSearchExcludes(args)
         if (caseInsensitive) {
             args.add("-i")
         }
@@ -356,6 +364,7 @@ open class StandardFileSystemTools(protected val context: Context) {
             "-C",
             contextLines.coerceAtLeast(0).toString()
         )
+        addWorkspaceSearchExcludes(args)
         if (filePattern.isNotBlank() && filePattern != "*") {
             args.add("-g")
             args.add(filePattern)

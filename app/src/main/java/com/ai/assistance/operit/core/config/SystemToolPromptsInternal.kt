@@ -221,6 +221,43 @@ object SystemToolPromptsInternal {
                                 )
                         ),
                         ToolPrompt(
+                            name = "music_play_queue",
+                            description = "Play an audio queue inside the app using the built-in music player.",
+                            parametersStructured =
+                                listOf(
+                                    ToolParameterSchema(
+                                        name = "items",
+                                        type = "array",
+                                        description = "track objects with source, source_type, optional title, optional artist",
+                                        required = true
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "loop",
+                                        type = "boolean",
+                                        description = "optional, repeat the queue",
+                                        required = false
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "volume",
+                                        type = "number",
+                                        description = "optional, 0 to 1",
+                                        required = false
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "start_index",
+                                        type = "integer",
+                                        description = "optional zero-based queue start index",
+                                        required = false
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "start_position_ms",
+                                        type = "integer",
+                                        description = "optional start position in milliseconds for the first track",
+                                        required = false
+                                    )
+                                )
+                        ),
+                        ToolPrompt(
                             name = "music_pause",
                             description = "Pause the current app music playback.",
                             parametersStructured = emptyList()
@@ -1820,7 +1857,7 @@ object SystemToolPromptsInternal {
                                     ToolParameterSchema(
                                         name = "tts_voice_id",
                                         type = "string",
-                                        description = "optional, TTS voice id",
+                                        description = "optional, TTS voice id. For MIMO voiceclone, this may be the full data:audio/...;base64,... audio sample",
                                         required = false
                                     ),
                                     ToolParameterSchema(
@@ -3145,6 +3182,43 @@ object SystemToolPromptsInternal {
                                         name = "start_position_ms",
                                         type = "integer",
                                         description = "可选，开始播放位置，单位毫秒",
+                                        required = false
+                                    )
+                                )
+                        ),
+                        ToolPrompt(
+                            name = "music_play_queue",
+                            description = "使用应用内置音乐播放器播放音频队列。",
+                            parametersStructured =
+                                listOf(
+                                    ToolParameterSchema(
+                                        name = "items",
+                                        type = "array",
+                                        description = "曲目对象数组，包含 source、source_type，可选 title、artist",
+                                        required = true
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "loop",
+                                        type = "boolean",
+                                        description = "可选，循环队列",
+                                        required = false
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "volume",
+                                        type = "number",
+                                        description = "可选，0 到 1",
+                                        required = false
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "start_index",
+                                        type = "integer",
+                                        description = "可选，从队列第几个曲目开始，0 为第一首",
+                                        required = false
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "start_position_ms",
+                                        type = "integer",
+                                        description = "可选，第一首开始播放位置，单位毫秒",
                                         required = false
                                     )
                                 )
@@ -4749,7 +4823,7 @@ object SystemToolPromptsInternal {
                                     ToolParameterSchema(
                                         name = "tts_voice_id",
                                         type = "string",
-                                        description = "可选，TTS 音色 ID",
+                                        description = "可选，TTS 音色 ID。MIMO voiceclone 可填写完整 data:audio/...;base64,... 音频样本",
                                         required = false
                                     ),
                                     ToolParameterSchema(

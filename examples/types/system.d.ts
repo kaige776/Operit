@@ -356,6 +356,23 @@ export namespace System {
             startPositionMs?: number | string;
         }): Promise<MusicPlaybackResultData>;
 
+        /**
+         * Play an audio queue inside the app.
+         * @param options Queue playback options
+         */
+        function playQueue(options: {
+            items: Array<{
+                source: string;
+                sourceType: 'path' | 'url' | 'uri';
+                title?: string;
+                artist?: string;
+            }>;
+            loop?: boolean;
+            volume?: number | string;
+            startIndex?: number | string;
+            startPositionMs?: number | string;
+        }): Promise<MusicPlaybackResultData>;
+
         /** Pause current music playback. */
         function pause(): Promise<MusicPlaybackResultData>;
 
