@@ -54,7 +54,7 @@ android {
     defaultConfig {
         applicationId = "com.ai.assistance.operit"
         minSdk = 26
-        targetSdk = 34
+    //    targetSdk = 34
         versionCode = 44
         versionName = "1.11.0+5"
 
