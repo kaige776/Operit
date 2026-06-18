@@ -4,6 +4,7 @@ import android.content.Context
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.util.AppLogger
 import com.ai.assistance.operit.core.tools.AIToolHandler
+import com.ai.assistance.operit.core.tools.AIToolHookDecision
 import com.ai.assistance.operit.core.tools.StringResultData
 import com.ai.assistance.operit.core.tools.ToolExecutor
 import com.ai.assistance.operit.core.tools.climode.CliToolModeSupport
@@ -564,20 +565,40 @@ object ToolExecutionManager {
             }
         }
 
-        // 3. 权限检查
+        // 3. Hook 拦截与权限检查
         val permittedInvocations = mutableListOf<ToolInvocation>()
+        val hookDeniedResults = mutableListOf<ToolResult>()
         val permissionDeniedResults = mutableListOf<ToolResult>()
         for (invocation in roleCardPermittedInvocations) {
             toolHandler.notifyToolCallRequested(invocation.tool)
-            val (hasPermission, errorResult) =
-                checkToolPermission(toolHandler, invocation, toolExposureMode)
-            if (hasPermission) {
-                permittedInvocations.add(invocation)
-            } else {
-                errorResult?.let {
-                    permissionDeniedResults.add(it)
+            val interceptionTool = resolveToolTarget(invocation.tool).tool
+            when (val interception = toolHandler.checkToolInterception(interceptionTool)) {
+                AIToolHookDecision.Allow -> {
+                    val (hasPermission, errorResult) =
+                        checkToolPermission(toolHandler, invocation, toolExposureMode)
+                    if (hasPermission) {
+                        permittedInvocations.add(invocation)
+                    } else {
+                        errorResult?.let {
+                            permissionDeniedResults.add(it)
+                            val toolResultStatusContent =
+                                ConversationMarkupManager.formatToolResultForMessage(it)
+                            collector.emit(ensureEndsWithNewline(toolResultStatusContent))
+                        }
+                    }
+                }
+
+                is AIToolHookDecision.Block -> {
+                    val interceptedResult =
+                        toolHandler.buildToolInterceptionResult(
+                            resolveDisplayToolName(invocation.tool),
+                            interception
+                        )
+                    hookDeniedResults.add(interceptedResult)
+                    toolHandler.notifyToolExecutionResult(invocation.tool, interceptedResult)
+                    toolHandler.notifyToolExecutionFinished(invocation.tool)
                     val toolResultStatusContent =
-                        ConversationMarkupManager.formatToolResultForMessage(it)
+                        ConversationMarkupManager.formatToolResultForMessage(interceptedResult)
                     collector.emit(ensureEndsWithNewline(toolResultStatusContent))
                 }
             }
@@ -649,7 +670,11 @@ object ToolExecutionManager {
         val orderedAggregated = injectedInvocations.mapNotNull { executionResults[it] }
 
         // 7. 组合所有结果并返回
-        toolExposureDeniedResults + roleCardDeniedResults + permissionDeniedResults + orderedAggregated
+        toolExposureDeniedResults +
+            roleCardDeniedResults +
+            hookDeniedResults +
+            permissionDeniedResults +
+            orderedAggregated
     }
 
     /**

@@ -149,7 +149,7 @@ exports.apk_reverse_build = apk_reverse_build;
 exports.apk_reverse_sign = apk_reverse_sign;
 exports.apk_reverse_build_and_sign = apk_reverse_build_and_sign;
 exports.ensureHelperRuntimeLoaded = ensureHelperRuntimeLoaded;
-const PACKAGE_VERSION = "1.0.2";
+const PACKAGE_VERSION = "1.0.3";
 const APKTOOL_VERSION = "3.0.1";
 const JADX_VERSION = "1.5.2";
 const APKTOOL_RUNTIME_RESOURCE_KEY = "apktool_runtime_android_jar";
@@ -435,118 +435,6 @@ async function callHelperFacade(methodName, invoke, helperLoadTag) {
 async function ensureFrameworkJarPath() {
     return ToolPkg.readResource(APKTOOL_ANDROID_FRAMEWORK_RESOURCE_KEY, APKTOOL_ANDROID_FRAMEWORK_OUTPUT_FILE_NAME, true);
 }
-function getApktoolBridgeClasses() {
-    return {
-        File: Java.type("java.io.File"),
-        Config: Java.type("brut.androlib.Config"),
-        ApkBuilder: Java.type("brut.androlib.ApkBuilder"),
-        Framework: Java.type("brut.androlib.res.Framework"),
-        DecodeSources: Java.type("brut.androlib.Config$DecodeSources"),
-        DecodeResources: Java.type("brut.androlib.Config$DecodeResources"),
-        DecodeAssets: Java.type("brut.androlib.Config$DecodeAssets")
-    };
-}
-function configureJavaLogging(mode) {
-    const Logger = Java.type("java.util.logging.Logger");
-    const Level = Java.type("java.util.logging.Level");
-    const root = Logger.getLogger("");
-    const level = mode === "quiet" ? Level.OFF : mode === "verbose" ? Level.ALL : Level.INFO;
-    root.setLevel(level);
-    const handlers = root.getHandlers();
-    const length = Number(handlers.length);
-    for (let index = 0; index < length; index += 1) {
-        handlers[index].setLevel(level);
-    }
-}
-async function ensureDefaultFrameworkInstalled(classes, config) {
-    const framework = new classes.Framework(config);
-    const frameworkDirectory = framework.getDirectory();
-    const frameworkApk = new classes.File(frameworkDirectory, "1.apk");
-    const frameworkExists = frameworkApk.exists();
-    const frameworkSize = frameworkExists ? Number(frameworkApk.length()) : 0;
-    if (frameworkExists && frameworkSize > 0) {
-        return {
-            frameworkDirectory: asText(frameworkDirectory.getAbsolutePath()),
-            frameworkApkPath: asText(frameworkApk.getAbsolutePath()),
-            installed: false,
-            frameworkSize
-        };
-    }
-    if (frameworkExists) {
-        frameworkApk.delete();
-    }
-    const frameworkJarPath = await ensureFrameworkJarPath();
-    framework.install(new classes.File(frameworkJarPath));
-    return {
-        frameworkDirectory: asText(frameworkDirectory.getAbsolutePath()),
-        frameworkApkPath: asText(frameworkApk.getAbsolutePath()),
-        installed: true,
-        sourceJarPath: frameworkJarPath,
-        frameworkSize: Number(frameworkApk.length())
-    };
-}
-function createExecutionContext(classes, params, operation) {
-    const config = new classes.Config(APKTOOL_VERSION);
-    const applied = {
-        version: APKTOOL_VERSION
-    };
-    const jobs = optionalInteger(params, "jobs", undefined);
-    if (jobs !== undefined) {
-        config.setJobs(jobs);
-        applied.jobs = jobs;
-    }
-    const framePath = optionalText(params, "frame_path");
-    if (framePath) {
-        config.setFrameworkDirectory(framePath);
-        applied.frame_path = framePath;
-    }
-    const frameTag = optionalText(params, "frame_tag");
-    if (frameTag) {
-        config.setFrameworkTag(frameTag);
-        applied.frame_tag = frameTag;
-    }
-    const force = optionalBoolean(params, "force", false);
-    if (force) {
-        config.setForced(true);
-        applied.force = true;
-    }
-    const verbose = optionalBoolean(params, "verbose", false);
-    const quiet = optionalBoolean(params, "quiet", false);
-    if (verbose && quiet) {
-        throw new Error("verbose cannot be used together with quiet");
-    }
-    if (verbose) {
-        config.setVerbose(true);
-        applied.verbose = true;
-    }
-    if (quiet) {
-        applied.quiet = true;
-    }
-    configureJavaLogging(quiet ? "quiet" : verbose ? "verbose" : "normal");
-    if (operation === "decode") {
-        const noSrc = optionalBoolean(params, "no_src", false);
-        const noRes = optionalBoolean(params, "no_res", false);
-        const onlyManifest = optionalBoolean(params, "only_manifest", false);
-        const noAssets = optionalBoolean(params, "no_assets", false);
-        if (noSrc) {
-            config.setDecodeSources(classes.DecodeSources.NONE);
-            applied.decode_sources = "none";
-        }
-        if (onlyManifest) {
-            config.setDecodeResources(classes.DecodeResources.ONLY_MANIFEST);
-            applied.decode_resources = "only_manifest";
-        }
-        else if (noRes) {
-            config.setDecodeResources(classes.DecodeResources.NONE);
-            applied.decode_resources = "none";
-        }
-        if (noAssets) {
-            config.setDecodeAssets(classes.DecodeAssets.NONE);
-            applied.decode_assets = "none";
-        }
-    }
-    return { config, applied };
-}
 function getApplicationContext() {
     return Java.getApplicationContext();
 }
@@ -677,24 +565,14 @@ async function decodeApkInternal(inputApkPath, outputDir, params) {
 }
 async function buildApkInternal(decodedDir, outputApkPath, params) {
     const runtime = await ensureApktoolRuntimeLoaded();
-    const classes = getApktoolBridgeClasses();
-    const decodedDirFile = new classes.File(decodedDir);
-    requireExistingDirectory(decodedDirFile, "decoded_dir");
-    const context = createExecutionContext(classes, params || {}, "build");
-    const frameworkInfo = await ensureDefaultFrameworkInstalled(classes, context.config);
-    const outputFile = new classes.File(outputApkPath);
-    const parent = outputFile.getParentFile();
-    if (parent && !parent.exists()) {
-        parent.mkdirs();
-    }
-    const builder = new classes.ApkBuilder(decodedDirFile, context.config);
-    builder.build(outputFile);
+    const frameworkJarPath = await ensureFrameworkJarPath();
+    const helper = await callHelperFacade("buildApk", (Facade) => Facade.buildApk(decodedDir, outputApkPath, frameworkJarPath, APKTOOL_VERSION, optionalInteger(params, "jobs", undefined), optionalText(params, "frame_path") || "", optionalText(params, "frame_tag") || "", optionalBoolean(params, "force", false), optionalBoolean(params, "verbose", false), optionalBoolean(params, "quiet", false)), "apktool_build");
     return {
         runtime,
-        frameworkInfo,
-        appliedConfig: context.applied,
-        decodedDir: asText(decodedDirFile.getAbsolutePath()),
-        outputApkPath: asText(outputFile.getAbsolutePath())
+        frameworkInfo: helper.payload.frameworkInfo,
+        appliedConfig: helper.payload.appliedConfig,
+        decodedDir: helper.payload.decodedDir,
+        outputApkPath: helper.payload.outputApkPath
     };
 }
 function baseSuccessPayload(runtimeExtras) {
@@ -758,7 +636,7 @@ async function usage_advice() {
             "apk_reverse_build_and_sign"
         ],
         notes: [
-            "Primary flows are implemented with direct Java bridge calls and bundled dex-jar resources.",
+            "Primary APKTool and JADX flows are implemented through helper-backed Java bridge calls and bundled dex-jar resources.",
             "JADX decompilation now runs through the helper runtime so Android-specific compatibility stays in Java.",
             "Helper-backed bridge calls reload the helper jar per invocation so apktool and JADX classloader chains stay valid within a shared JS session.",
             "JADX runtime and helper runtime are expected to be produced by build_runtime_android_resources.ps1 before packaging.",

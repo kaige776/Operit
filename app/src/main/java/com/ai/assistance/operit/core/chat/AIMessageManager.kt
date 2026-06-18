@@ -175,7 +175,11 @@ object AIMessageManager {
                     WorkspaceChangeTracker.getInstance(context)
                         .consumeChanges(chatId, normalizedWorkspacePath, workspaceEnv)
                 "<workspace_attachment>" +
-                    WorkspaceAttachmentProcessor.generateWorkspaceAttachment(workspaceEnv, workspaceChanges) +
+                    WorkspaceAttachmentProcessor.generateWorkspaceAttachment(
+                        context,
+                        workspaceEnv,
+                        workspaceChanges
+                    ) +
                     "</workspace_attachment>"
             } else {
                 ""
@@ -203,7 +207,7 @@ object AIMessageManager {
                             }
                         }
                         val attachedContent = buildString {
-                            append("图片内容已作为多模态输入随本消息附着，勿调用文件读取工具读取该路径。")
+                            append(context.getString(R.string.ai_message_image_attached_multimodal_notice))
                             if (attachment.content.isNotBlank()) {
                                 append("\n")
                                 append(attachment.content)
@@ -651,7 +655,8 @@ object AIMessageManager {
         enhancedAiService: EnhancedAIService,
         messages: List<ChatMessage>,
         autoContinue: Boolean = false,
-        isGroupChat: Boolean = false
+        isGroupChat: Boolean = false,
+        summaryCustomRules: String? = null
     ): ChatMessage? {
         val lastSummaryIndex = messages.indexOfLast { it.sender == "summary" }
         val previousSummary = if (lastSummaryIndex != -1) messages[lastSummaryIndex].content.trim() else null
@@ -790,10 +795,10 @@ object AIMessageManager {
                 val preview = condenseToolResultPreview(mr.value)
                 buildString {
                     if (name != null) {
-                        append("[结果: ")
+                        append(context.getString(R.string.ai_message_result_prefix))
                         append(name)
                         append(statusSuffix)
-                        append("]")
+                        append(context.getString(R.string.ai_message_result_suffix))
                     } else {
                         append(context.getString(R.string.ai_message_tool_result_omitted_short))
                     }
@@ -917,15 +922,15 @@ object AIMessageManager {
                         val resultPreview = condenseToolResultPreview(seg.raw)
                         buildString {
                             if (statusText.isBlank()) {
-                                append("[结果: ")
+                                append(context.getString(R.string.ai_message_result_prefix))
                                 append(name)
-                                append("]")
+                                append(context.getString(R.string.ai_message_result_suffix))
                             } else {
-                                append("[结果: ")
+                                append(context.getString(R.string.ai_message_result_prefix))
                                 append(name)
                                 append(" ")
                                 append(statusText)
-                                append("]")
+                                append(context.getString(R.string.ai_message_result_suffix))
                             }
                             if (resultPreview.isNotBlank()) {
                                 append(" ")
@@ -1007,7 +1012,7 @@ object AIMessageManager {
 
         return try {
             AppLogger.d(TAG, "开始使用AI生成对话总结：总结 ${messagesToSummarize.size} 条消息")
-            val summary = enhancedAiService.generateSummary(conversationToSummarize, previousSummary)
+            val summary = enhancedAiService.generateSummary(conversationToSummarize, previousSummary, summaryCustomRules)
             AppLogger.d(TAG, "AI生成总结完成: ${summary.take(50)}...")
 
             if (summary.isBlank()) {
@@ -1062,7 +1067,7 @@ object AIMessageManager {
         messagesToSummarize: List<ChatMessage>,
         useEnglish: Boolean
     ): String {
-        val title = if (useEnglish) "[Package Warmup]" else "【工具包预热】"
+        val title = context.getString(R.string.ai_message_package_warmup_title)
         val topPackages = extractTopPackageUsages(messagesToSummarize, limit = 2)
 
         if (topPackages.isEmpty()) {
@@ -1070,7 +1075,7 @@ object AIMessageManager {
                 if (useEnglish) {
                     "No package-prefixed tool usage was detected in this summary window, so no package was preheated."
                 } else {
-                    "本次摘要范围内未检测到包工具调用，因此未进行工具包预热。"
+                    context.getString(R.string.ai_message_package_warmup_empty)
                 }
             return "$title\n$emptyMessage"
         }
@@ -1079,7 +1084,7 @@ object AIMessageManager {
             if (useEnglish) {
                 "The following high-frequency packages were automatically activated from the summarized tool usage, and their use_package results are attached for the next-turn warmup."
             } else {
-                "以下根据本次摘要范围内的工具使用频次，自动激活了最高频的工具包，并附上 use_package 的返回结果，供下一轮预热。"
+                context.getString(R.string.ai_message_package_warmup_intro)
             }
 
         val body = withContext(Dispatchers.IO) {
@@ -1094,21 +1099,31 @@ object AIMessageManager {
                                 if (useEnglish) {
                                     "use_package failed: ${throwable.message ?: "unknown error"}"
                                 } else {
-                                    "use_package 调用失败: ${throwable.message ?: "未知错误"}"
+                                    context.getString(
+                                        R.string.ai_message_use_package_failed,
+                                        throwable.message ?: context.getString(R.string.unknown_error)
+                                    )
                                 }
                             }
                             .ifBlank {
                                 if (useEnglish) {
                                     "use_package returned empty content."
                                 } else {
-                                    "use_package 返回为空。"
+                                    context.getString(R.string.ai_message_use_package_empty)
                                 }
                             }
 
                     if (useEnglish) {
                         appendLine("${index + 1}. Package ${stat.packageName} (${stat.count} hits)")
                     } else {
-                        appendLine("${index + 1}. 包 ${stat.packageName}（命中 ${stat.count} 次）")
+                        appendLine(
+                            context.getString(
+                                R.string.ai_message_package_warmup_item,
+                                index + 1,
+                                stat.packageName,
+                                stat.count
+                            )
+                        )
                     }
                     appendLine(indentBlock(resultText, "   "))
                     if (index != topPackages.lastIndex) {

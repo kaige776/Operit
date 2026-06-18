@@ -1,18 +1,22 @@
 package com.ai.assistance.operit.ui.features.packages.market
 
+import android.content.Context
+import com.ai.assistance.operit.R
+
 sealed interface PluginCreationIntent {
     val requirement: String
 
-    fun toPrompt(): String
+    fun toPrompt(context: Context): String
 
     data class Fresh(
         override val requirement: String
     ) : PluginCreationIntent {
-        override fun toPrompt(): String {
+        override fun toPrompt(context: Context): String {
             return buildCreationPrompt(
-                taskLine = "请你激活operit editor，并使用沙盒包开发 dev 工具包开发新的沙盒包。",
-                packageRuleLine = "先确定新的沙盒包 id，后续不要改名。",
-                devDirectoryLine = "开发目录固定为 手机下载/Operit/dev_package/你确定的id。开发、安装和测试都只在这里完成。",
+                context = context,
+                taskLine = context.getString(R.string.plugin_creation_fresh_task_line),
+                packageRuleLine = context.getString(R.string.plugin_creation_fresh_package_rule_line),
+                devDirectoryLine = context.getString(R.string.plugin_creation_fresh_dev_directory_line),
                 requirement = requirement
             )
         }
@@ -22,11 +26,12 @@ sealed interface PluginCreationIntent {
         val runtimePackageId: String,
         override val requirement: String
     ) : PluginCreationIntent {
-        override fun toPrompt(): String {
+        override fun toPrompt(context: Context): String {
             return buildCreationPrompt(
-                taskLine = "请你激活operit editor，查找沙盒包 ${runtimePackageId} 的位置，在此版本基础上继续开发并测试。",
-                packageRuleLine = "当前沙盒包 id 是 ${runtimePackageId}。包 id 和插件名字都必须沿用，不要改名，也不要新起包。",
-                devDirectoryLine = "开发目录固定为 手机下载/Operit/dev_package/${runtimePackageId}。开发、安装和测试都只在这里完成。",
+                context = context,
+                taskLine = context.getString(R.string.plugin_creation_continue_task_line, runtimePackageId),
+                packageRuleLine = context.getString(R.string.plugin_creation_existing_package_rule_line, runtimePackageId),
+                devDirectoryLine = context.getString(R.string.plugin_creation_existing_dev_directory_line, runtimePackageId),
                 requirement = requirement
             )
         }
@@ -36,11 +41,12 @@ sealed interface PluginCreationIntent {
         val runtimePackageId: String,
         override val requirement: String
     ) : PluginCreationIntent {
-        override fun toPrompt(): String {
+        override fun toPrompt(context: Context): String {
             return buildCreationPrompt(
-                taskLine = "请你激活operit editor，查找沙盒包 ${runtimePackageId} 的位置，在此版本基础上做合并开发并测试。",
-                packageRuleLine = "当前沙盒包 id 是 ${runtimePackageId}。包 id 和插件名字都必须沿用，不要改名，也不要新起包。",
-                devDirectoryLine = "开发目录固定为 手机下载/Operit/dev_package/${runtimePackageId}。开发、安装和测试都只在这里完成。",
+                context = context,
+                taskLine = context.getString(R.string.plugin_creation_merge_task_line, runtimePackageId),
+                packageRuleLine = context.getString(R.string.plugin_creation_existing_package_rule_line, runtimePackageId),
+                devDirectoryLine = context.getString(R.string.plugin_creation_existing_dev_directory_line, runtimePackageId),
                 requirement = requirement
             )
         }
@@ -48,6 +54,7 @@ sealed interface PluginCreationIntent {
 }
 
 private fun buildCreationPrompt(
+    context: Context,
     taskLine: String,
     packageRuleLine: String,
     devDirectoryLine: String,
@@ -55,13 +62,13 @@ private fun buildCreationPrompt(
 ): String {
     return buildString {
         appendLine(taskLine)
-        appendLine("先更新 SandboxPackage_DEV。")
+        appendLine(context.getString(R.string.plugin_creation_update_sandbox_package_dev))
         appendLine(devDirectoryLine)
         appendLine(packageRuleLine)
-        appendLine("把 skills 里的 types 覆盖复制到开发目录。")
-        appendLine("尽量用终端，优先写 ts 和 js，再编译出最终 js。tsconfig 参考 examples。")
-        appendLine("为了方便二次开发，打包需要把 ts 部分和 tsconfig 打包进去。")
-        appendLine("需求:")
+        appendLine(context.getString(R.string.plugin_creation_copy_types_to_dev_dir))
+        appendLine(context.getString(R.string.plugin_creation_use_terminal_ts_js_hint))
+        appendLine(context.getString(R.string.plugin_creation_package_ts_hint))
+        appendLine(context.getString(R.string.plugin_creation_requirement_label))
         append(requirement.trim())
     }
 }

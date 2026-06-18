@@ -4279,7 +4279,7 @@ open class StandardFileSystemTools(protected val context: Context) {
         val environment = tool.parameters.find { it.name == "environment" }?.value
         val newContent = tool.parameters.find { it.name == "new" }?.value ?: ""
 
-        return applyFile(
+        val applyResult = applyFile(
             AITool(
                 name = "apply_file",
                 parameters = listOfNotNull(
@@ -4290,6 +4290,8 @@ open class StandardFileSystemTools(protected val context: Context) {
                 )
             )
         ).last()
+
+        return wrapApplyFileResult(tool.name, applyResult)
     }
 
     /** Edit a file by delegating to apply_file with type=replace */
@@ -4299,7 +4301,7 @@ open class StandardFileSystemTools(protected val context: Context) {
         val oldContent = tool.parameters.find { it.name == "old" }?.value ?: ""
         val newContent = tool.parameters.find { it.name == "new" }?.value ?: ""
 
-        return applyFile(
+        val applyResult = applyFile(
             AITool(
                 name = "apply_file",
                 parameters = listOfNotNull(
@@ -4311,6 +4313,12 @@ open class StandardFileSystemTools(protected val context: Context) {
                 )
             )
         ).last()
+
+        return wrapApplyFileResult(tool.name, applyResult)
+    }
+
+    private fun wrapApplyFileResult(toolName: String, applyResult: ToolResult): ToolResult {
+        return applyResult.copy(toolName = toolName)
     }
 
     /**

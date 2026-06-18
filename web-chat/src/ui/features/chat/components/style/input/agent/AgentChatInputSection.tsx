@@ -1080,6 +1080,7 @@ export function AgentChatInputSection({
       ) : null}
 
       <AttachmentSelector
+        mode="agent"
         onDismiss={() => onAttachmentPanelChange(false)}
         onUploadFiles={(files) => {
           void onUploadFiles(files);

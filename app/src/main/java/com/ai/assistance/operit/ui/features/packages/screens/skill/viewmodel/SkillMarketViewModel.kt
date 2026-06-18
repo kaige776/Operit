@@ -610,7 +610,9 @@ class SkillMarketViewModel(
     ): Result<Unit> {
         return try {
             if (!githubAuth.isLoggedIn()) {
-                return Result.failure(IllegalStateException("GitHub 登录后才能发布 Skill。"))
+                return Result.failure(
+                    IllegalStateException(context.getString(R.string.skill_publish_login_required))
+                )
             }
 
             ensureSkillTitleAvailable(title = title)
@@ -642,7 +644,10 @@ class SkillMarketViewModel(
                     onFailure = { Result.failure(it) }
                 )
             } else {
-                Result.failure(result.exceptionOrNull() ?: IllegalStateException("Skill 发布失败"))
+                Result.failure(
+                    result.exceptionOrNull()
+                        ?: IllegalStateException(context.getString(R.string.skill_publish_failed_title))
+                )
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to publish skill", e)
@@ -659,7 +664,9 @@ class SkillMarketViewModel(
     ): Result<Unit> {
         return try {
             if (!githubAuth.isLoggedIn()) {
-                return Result.failure(IllegalStateException("GitHub 登录后才能更新 Skill。"))
+                return Result.failure(
+                    IllegalStateException(context.getString(R.string.skill_update_login_required))
+                )
             }
 
             ensureSkillTitleAvailable(
@@ -695,13 +702,14 @@ class SkillMarketViewModel(
     ) {
         val trimmedTitle = title.trim()
         if (trimmedTitle.isBlank()) {
-            throw IllegalArgumentException("Skill 名称不能为空。")
+            throw IllegalArgumentException(context.getString(R.string.skill_publish_name_empty))
         }
 
         val issues =
             marketService.searchOpenIssuesByExactTitle(trimmedTitle).getOrElse { error ->
+                val searchError = error.message ?: context.getString(R.string.github_search_failed)
                 throw IllegalStateException(
-                    "检查 Skill 名称是否重名失败：${error.message ?: "GitHub 搜索失败"}"
+                    context.getString(R.string.skill_publish_check_name_conflict_failed, searchError)
                 )
             }
         val normalizedTitle = normalizePublishTitle(trimmedTitle)
@@ -711,7 +719,9 @@ class SkillMarketViewModel(
                     normalizePublishTitle(issue.title) == normalizedTitle
             }
         if (conflictingIssue != null) {
-            throw IllegalStateException("Skill 市场里已经有同名插件「$trimmedTitle」，请换一个名称。")
+            throw IllegalStateException(
+                context.getString(R.string.skill_publish_name_taken_message, trimmedTitle)
+            )
         }
     }
 

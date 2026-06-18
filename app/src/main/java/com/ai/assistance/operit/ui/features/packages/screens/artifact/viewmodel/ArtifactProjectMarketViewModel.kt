@@ -516,7 +516,8 @@ class ArtifactProjectMarketViewModel(
         sortOption: MarketSortOption
     ): List<ArtifactProjectRankEntryResponse> {
         return when (sortOption) {
-            MarketSortOption.UPDATED ->
+            MarketSortOption.UPDATED,
+            MarketSortOption.FEATURED ->
                 items.sortedWith(
                     compareByDescending<ArtifactProjectRankEntryResponse> { it.latestPublishedAt.orEmpty() }
                         .thenBy { it.projectDisplayName.lowercase() }

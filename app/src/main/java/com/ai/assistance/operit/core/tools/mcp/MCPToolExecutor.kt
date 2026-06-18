@@ -10,6 +10,9 @@ import com.ai.assistance.operit.data.model.AITool
 import com.ai.assistance.operit.data.model.ToolResult
 import com.ai.assistance.operit.data.model.ToolValidationResult
 import com.ai.assistance.operit.util.ImagePoolManager
+import com.ai.assistance.operit.util.OperitPaths
+import java.io.File
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
 
@@ -24,17 +27,39 @@ class MCPToolExecutor(private val context: Context, private val mcpManager: MCPM
         private const val TAG = "MCPToolExecutor"
     }
 
-    /** 截断过长的结果字符串 */
-    private suspend fun truncateResult(result: String): String {
+    /** 保存过长的 MCP 结果，并返回适合内联展示的内容 */
+    private fun persistLongResultIfNeeded(
+            result: String,
+            serverName: String,
+            toolName: String
+    ): String {
         val maxResultLength = ToolExecutionLimits.MAX_TEXT_RESULT_LENGTH
-        
+
         if (result.length <= maxResultLength) {
             return result
         }
-        val truncated = result.substring(0, maxResultLength)
+
+        val outputFile = writeMcpResultToFile(result, serverName, toolName)
+        val truncated = result.substring(0, maxResultLength).trimEnd()
         val remainingLength = result.length - maxResultLength
-        return "$truncated\n\n[... Result too long, truncated $remainingLength characters. Recommend using file operations or pagination.]"
+        return "$truncated\n\n[Result too long. Full MCP result saved to file: ${outputFile.absolutePath}]\n[Original result length: ${result.length} chars, inline preview omitted $remainingLength chars]\nUse read_file_part or grep_code to inspect the saved file."
     }
+
+    private fun writeMcpResultToFile(result: String, serverName: String, toolName: String): File {
+        val outputDir = OperitPaths.cleanOnExitInternalDir(context)
+        val safeServerName = sanitizeFileNamePart(serverName)
+        val safeToolName = sanitizeFileNamePart(toolName)
+        val file =
+                File(
+                        outputDir,
+                        "mcp_${safeServerName}_${safeToolName}_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}.txt"
+                )
+        file.writeText(result, Charsets.UTF_8)
+        return file
+    }
+
+    private fun sanitizeFileNamePart(value: String): String =
+            value.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').take(80)
 
     /**
      * 从 MCP 结果中提取内容
@@ -287,12 +312,17 @@ class MCPToolExecutor(private val context: Context, private val mcpManager: MCPM
                             // 成功：提取 result 字段并解析 content 数组
                             val resultData = response.optJSONObject("result")
                             val extractedContent = extractContentFromResult(resultData)
-                            val truncatedResult = kotlinx.coroutines.runBlocking { truncateResult(extractedContent) }
+                            val displayResult =
+                                    persistLongResultIfNeeded(
+                                            result = extractedContent,
+                                            serverName = serverName,
+                                            toolName = actualToolName
+                                    )
                             AppLogger.d(TAG, "MCP工具调用成功: $serverName:$actualToolName")
                             ToolResult(
                                     toolName = tool.name,
                                     success = true,
-                                    result = StringResultData(truncatedResult),
+                                    result = StringResultData(displayResult),
                                     error = null
                             )
                         } else {

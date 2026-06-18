@@ -34,7 +34,8 @@ object DefaultModelPricingCollect {
         "ALIPAY_BAILING",
         "DOUBAO",
         "PPINFRA",
-        "OPENAI_LOCAL"
+        "OPENAI_LOCAL",
+        "MIMO"
     )
 
     private fun defaultPricePerRequest(currency: PricingCurrency): Double {
@@ -182,6 +183,7 @@ object DefaultModelPricingCollect {
         "OLLAMA" to zeroPricing(PricingCurrency.CNY),
         "MNN" to zeroPricing(PricingCurrency.CNY),
         "LLAMA_CPP" to zeroPricing(PricingCurrency.CNY),
+        "MIMO" to zeroPricing(PricingCurrency.CNY),
         "NOVITA" to zeroPricing(PricingCurrency.USD)
     )
 

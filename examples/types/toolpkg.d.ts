@@ -142,6 +142,7 @@ export namespace ToolPkg {
         | Promise<string | ChatInputHookObjectResult | null | void>;
 
     export type ToolLifecycleEventName =
+        | "tool_call_intercept"
         | "tool_call_requested"
         | "tool_permission_checked"
         | "tool_execution_started"
@@ -289,7 +290,27 @@ export namespace ToolPkg {
         metadata?: HookMetadata;
     }
 
-    export type ToolLifecycleHookReturn = void | Promise<void>;
+    export interface ToolLifecycleAllowResult extends JsonObject {
+        action: "allow";
+    }
+
+    export interface ToolLifecycleBlockResult extends JsonObject {
+        action: "block";
+        reason: string;
+    }
+
+    export type ToolLifecycleHookObjectResult =
+        | ToolLifecycleAllowResult
+        | ToolLifecycleBlockResult;
+
+    export type ToolLifecycleHookReturnValue =
+        | ToolLifecycleHookObjectResult
+        | null
+        | void;
+
+    export type ToolLifecycleHookReturn =
+        | ToolLifecycleHookReturnValue
+        | Promise<ToolLifecycleHookReturnValue>;
 
     export type PromptInputHookReturn =
         | string

@@ -1,5 +1,6 @@
 package com.ai.assistance.operit.ui.features.memory.screens.dialogs
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -73,10 +74,19 @@ fun MemorySearchSettingsDialog(
     }
 
     var cloudEnabled by remember(cloudConfig) { mutableStateOf(cloudConfig.enabled) }
-    var endpoint by remember(cloudConfig) { mutableStateOf(cloudConfig.endpoint) }
+    var endpoint by remember(cloudConfig) {
+        mutableStateOf(cloudConfig.endpoint.filterNot { it.isWhitespace() })
+    }
     var apiKey by remember(cloudConfig) { mutableStateOf(cloudConfig.apiKey) }
     var model by remember(cloudConfig) { mutableStateOf(cloudConfig.model) }
     var showApiKey by remember { mutableStateOf(false) }
+    var cloudEndpointError by remember(cloudConfig) { mutableStateOf<String?>(null) }
+
+    val context = LocalContext.current
+    val settingsSavedMessage = stringResource(R.string.settings_saved)
+    val endpointBlankError = stringResource(R.string.memory_embedding_cloud_endpoint_error_blank)
+    val endpointSchemeError = stringResource(R.string.memory_embedding_cloud_endpoint_error_scheme)
+    val endpointMultipleUrlsError = stringResource(R.string.memory_embedding_cloud_endpoint_error_multiple_urls)
 
     val editedCloudConfig = CloudEmbeddingConfig(
         enabled = cloudEnabled,
@@ -188,9 +198,16 @@ fun MemorySearchSettingsDialog(
                     if (cloudEnabled) {
                         OutlinedTextField(
                             value = endpoint,
-                            onValueChange = { endpoint = it },
+                            onValueChange = {
+                                endpoint = it.filterNot { char -> char.isWhitespace() }
+                                cloudEndpointError = null
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text(stringResource(R.string.memory_embedding_cloud_endpoint)) },
+                            isError = cloudEndpointError != null,
+                            supportingText = cloudEndpointError?.let { errorText ->
+                                { Text(errorText) }
+                            },
                             singleLine = true
                         )
                         OutlinedTextField(
@@ -299,6 +316,18 @@ fun MemorySearchSettingsDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    val endpointValidationError = validateCloudEmbeddingEndpoint(
+                        endpoint = endpoint,
+                        blankError = endpointBlankError,
+                        schemeError = endpointSchemeError,
+                        multipleUrlsError = endpointMultipleUrlsError
+                    )
+                    if (cloudEnabled && endpointValidationError != null) {
+                        cloudEndpointError = endpointValidationError
+                        return@Button
+                    }
+
+                    cloudEndpointError = null
                     onSave(
                         MemorySearchConfig(
                             scoreMode = scoreMode,
@@ -310,6 +339,7 @@ fun MemorySearchSettingsDialog(
                         editedCloudConfig,
                         editedAutoSaveIntervalMinutes.roundToInt()
                     )
+                    Toast.makeText(context, settingsSavedMessage, Toast.LENGTH_SHORT).show()
                 }
             ) {
                 Text(stringResource(R.string.memory_save))
@@ -443,4 +473,19 @@ private fun stageText(stage: String): String {
         "done" -> stringResource(R.string.memory_embedding_stage_done)
         else -> stage
     }
+}
+
+private fun validateCloudEmbeddingEndpoint(
+    endpoint: String,
+    blankError: String,
+    schemeError: String,
+    multipleUrlsError: String
+): String? {
+    if (endpoint.isBlank()) return blankError
+    if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) return schemeError
+
+    val urlMatches = Regex("https?://").findAll(endpoint).count()
+    if (urlMatches > 1) return multipleUrlsError
+
+    return null
 }

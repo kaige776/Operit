@@ -413,7 +413,7 @@ object AIServiceFactory {
                     enableToolCall = enableToolCall
                 )
 
-            // 阿里云（通义千问）使用专用的QwenProvider
+            // 阿里云（通义千问）使用QwenProvider
             ApiProviderType.ALIYUN ->
                 QwenAIProvider(
                     apiEndpoint = config.apiEndpoint,

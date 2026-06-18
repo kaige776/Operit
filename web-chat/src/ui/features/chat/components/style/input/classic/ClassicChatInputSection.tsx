@@ -180,6 +180,7 @@ export function ClassicChatInputSection({
       </div>
 
       <AttachmentSelector
+        mode="classic"
         onDismiss={() => onAttachmentPanelChange(false)}
         onUploadFiles={(files) => {
           void onUploadFiles(files);

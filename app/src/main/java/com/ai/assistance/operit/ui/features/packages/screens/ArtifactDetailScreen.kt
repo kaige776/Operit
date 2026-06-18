@@ -331,8 +331,8 @@ fun ArtifactDetailScreen(
                     icon = Icons.Default.Info
                 )
             )
-            addIfNotBlank("项目簇", node.projectId, Icons.Default.Tag)
-            addIfNotBlank("节点 ID", node.nodeId, Icons.Default.Tag)
+            addIfNotBlank(stringResource(R.string.artifact_detail_project_cluster), node.projectId, Icons.Default.Tag)
+            addIfNotBlank(stringResource(R.string.artifact_detail_node_id), node.nodeId, Icons.Default.Tag)
             addIfNotBlank(stringResource(R.string.asset_file_label), node.assetName, Icons.Default.Info)
             addIfNotBlank(stringResource(R.string.release_tag_label), node.releaseTag, Icons.Default.Tag)
             addIfNotBlank(stringResource(R.string.sha256_label), node.sha256, Icons.Default.Info)
@@ -545,7 +545,7 @@ fun ArtifactDetailScreen(
                 creatorSetupRunning = false
                 creatorSetupResult = null
             },
-            title = { Text("基于当前节点继续开发") },
+            title = { Text(stringResource(R.string.artifact_detail_continue_develop_current_node)) },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -555,7 +555,7 @@ fun ArtifactDetailScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "1. 拉取 Skill 更新",
+                            text = stringResource(R.string.artifact_detail_step_pull_skill_update),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -610,7 +610,7 @@ fun ArtifactDetailScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "2. 切换或下载当前版本",
+                            text = stringResource(R.string.artifact_detail_step_switch_or_download_version),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -647,19 +647,19 @@ fun ArtifactDetailScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "3. 输入需求开始创作",
+                            text = stringResource(R.string.artifact_detail_step_enter_requirement),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "会在此版本基础上继续开发，并强提醒目录限制、types 同步和编译方式。",
+                            text = stringResource(R.string.artifact_detail_continue_develop_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         OutlinedTextField(
                             value = creationRequirement,
                             onValueChange = { creationRequirement = it },
-                            label = { Text("这次想让 AI 做什么") },
+                            label = { Text(stringResource(R.string.artifact_detail_ai_requirement_label)) },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -684,7 +684,7 @@ fun ArtifactDetailScreen(
                         )
                     }
                 ) {
-                    Text("开始基于开发")
+                    Text(stringResource(R.string.artifact_detail_start_based_development))
                 }
             },
             dismissButton = {
@@ -720,12 +720,12 @@ private fun ArtifactNodeContinuePublishCard(
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                text = "在此版本基础上更新",
+                text = stringResource(R.string.artifact_detail_update_based_on_version),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "你可以直接基于当前版本发布新版本，也可以先继续创作，再决定什么时候发布。",
+                text = stringResource(R.string.artifact_detail_update_based_on_version_hint),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -742,7 +742,7 @@ private fun ArtifactNodeContinuePublishCard(
                 )
                 androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(4.dp))
                 Text(
-                    text = "发布新版本",
+                    text = stringResource(R.string.artifact_detail_publish_new_version),
                     style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp)
                 )
             }
@@ -759,7 +759,7 @@ private fun ArtifactNodeContinuePublishCard(
                 )
                 androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(4.dp))
                 Text(
-                    text = "创作新版本",
+                    text = stringResource(R.string.artifact_detail_create_new_version),
                     style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp)
                 )
             }
@@ -782,6 +782,7 @@ private fun InvalidArtifactMetadataScreen(
     }
 }
 
+@Composable
 private fun buildArtifactBadges(
     version: String,
     artifactType: PublishArtifactType,
@@ -796,9 +797,9 @@ private fun buildArtifactBadges(
         )
         supportedVersionLabel
             .takeIf { it.isNotBlank() && !it.equals("Any", ignoreCase = true) }
-            ?.let { add("适配 $it") }
+            ?.let { add(stringResource(R.string.artifact_detail_badge_supported_version, it)) }
         if (version.isNotBlank()) {
-            add("版本 ${normalizeDetailVersionBadge(version)}")
+            add(stringResource(R.string.artifact_detail_badge_version, normalizeDetailVersionBadge(version)))
         }
     }
 }
@@ -814,8 +815,11 @@ private fun buildArtifactBanner(
     return when (installState) {
         LocalArtifactInstallStateKind.NAME_CONFLICT ->
             UnifiedMarketDetailBanner(
-                title = "同名冲突",
-                message = "本地已经有同名但不属于当前项目簇的版本 `${node.runtimePackageId}`，需要先手动卸载。",
+                title = stringResource(R.string.artifact_detail_name_conflict_title),
+                message = stringResource(
+                    R.string.artifact_detail_name_conflict_message,
+                    node.runtimePackageId
+                ),
                 icon = Icons.Default.Warning,
                 containerColor = MaterialTheme.colorScheme.errorContainer,
                 contentColor = MaterialTheme.colorScheme.onErrorContainer
@@ -823,8 +827,11 @@ private fun buildArtifactBanner(
 
         LocalArtifactInstallStateKind.BUILT_IN_CONFLICT ->
             UnifiedMarketDetailBanner(
-                title = "内置包冲突",
-                message = "本地同名包 `${node.runtimePackageId}` 来自内置插件，不能直接覆盖。",
+                title = stringResource(R.string.artifact_detail_built_in_conflict_title),
+                message = stringResource(
+                    R.string.artifact_detail_built_in_conflict_message,
+                    node.runtimePackageId
+                ),
                 icon = Icons.Default.Warning,
                 containerColor = MaterialTheme.colorScheme.errorContainer,
                 contentColor = MaterialTheme.colorScheme.onErrorContainer
@@ -980,13 +987,16 @@ private fun rememberArtifactPrimaryActionUi(
     val label =
         when {
             isPreviewMode -> stringResource(R.string.market_detail_preview_action_label)
-            isRefreshingInstalledArtifacts && !isInstalling -> "检查安装中"
+            isRefreshingInstalledArtifacts && !isInstalling -> stringResource(R.string.artifact_detail_checking_installation)
             isInstalling -> stringResource(R.string.downloading)
             installState == LocalArtifactInstallStateKind.EXACT_INSTALLED ->
                 stringResource(R.string.installed)
-            installState == LocalArtifactInstallStateKind.SAME_PROJECT_VARIANT_INSTALLED -> "切换到此版本"
-            installState == LocalArtifactInstallStateKind.NAME_CONFLICT -> "同名冲突"
-            installState == LocalArtifactInstallStateKind.BUILT_IN_CONFLICT -> "内置包冲突"
+            installState == LocalArtifactInstallStateKind.SAME_PROJECT_VARIANT_INSTALLED ->
+                stringResource(R.string.artifact_detail_switch_to_this_version)
+            installState == LocalArtifactInstallStateKind.NAME_CONFLICT ->
+                stringResource(R.string.artifact_detail_name_conflict_title)
+            installState == LocalArtifactInstallStateKind.BUILT_IN_CONFLICT ->
+                stringResource(R.string.artifact_detail_built_in_conflict_title)
             artifactType == PublishArtifactType.SCRIPT -> stringResource(R.string.download_script)
             else -> stringResource(R.string.download_package)
         }

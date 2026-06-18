@@ -175,7 +175,7 @@ function ChatMessageLocatorDialog({
   const normalizedSearchQuery = normalizeMessageSearchText(searchQuery);
   const activeLocatorEntries = normalizedSearchQuery ? searchEntries : locatorEntries;
   const combinedLoading = isLoading || isLoadingSearchEntries;
-  const combinedLoadFailed = loadFailed || searchLoadFailed;
+  const combinedLoadFailed = normalizedSearchQuery ? searchLoadFailed : loadFailed;
   const currentMessageIndex = locatorEntries.findIndex((entry) => entry.timestamp === currentMessageTimestamp);
   const indexedEntries = useMemo<ChatMessageLocatorEntry[]>(
     () =>
@@ -210,11 +210,12 @@ function ChatMessageLocatorDialog({
         .then((entries) => {
           if (!cancelled) {
             setSearchEntries(entries);
+            setSearchLoadFailed(false);
           }
         })
         .catch((error: unknown) => {
-          console.error('搜索消息定位列表失败', error);
           if (!cancelled) {
+            console.error('搜索消息定位列表失败', error);
             setSearchEntries([]);
             setSearchLoadFailed(true);
           }
@@ -672,11 +673,12 @@ export function ChatScrollNavigator({
       .then((entries) => {
         if (!cancelled) {
           setLocatorEntries(entries);
+          setLocatorLoadFailed(false);
         }
       })
       .catch((error) => {
-        console.error('加载消息定位列表失败', error);
         if (!cancelled) {
+          console.error('加载消息定位列表失败', error);
           setLocatorEntries([]);
           setLocatorLoadFailed(true);
         }

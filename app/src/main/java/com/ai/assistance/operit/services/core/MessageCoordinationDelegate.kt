@@ -28,6 +28,9 @@ import com.ai.assistance.operit.data.preferences.CharacterGroupCardManager
 import com.ai.assistance.operit.data.preferences.ActivePromptManager
 import com.ai.assistance.operit.data.preferences.DisplayPreferencesManager
 import com.ai.assistance.operit.data.preferences.preferencesManager
+import com.ai.assistance.operit.data.preferences.ModelConfigManager
+import com.ai.assistance.operit.data.preferences.FunctionalConfigManager
+import com.ai.assistance.operit.data.preferences.FunctionConfigMapping
 import com.ai.assistance.operit.services.ChatServiceUiBridge
 import com.ai.assistance.operit.util.ChatMarkupRegex
 import com.ai.assistance.operit.util.ChatUtils
@@ -361,15 +364,25 @@ class MessageCoordinationDelegate(
         if (targetMessage.sender != "ai") {
             throw IllegalArgumentException(context.getString(R.string.chat_only_ai_message_allowed))
         }
-        val prefixHistory = currentHistory.subList(0, index).toList()
-        val (requestHistory, requestMessageContent) =
-            if (prefixHistory.lastOrNull()?.sender == "user") {
-                prefixHistory.dropLast(1) to prefixHistory.last().content
-            } else {
-                prefixHistory to ""
-            }
+        val runtimeHistory =
+            chatHistoryDelegate.getRuntimeChatHistoryUpTo(
+                chatId = chatId,
+                upToTimestampInclusive = targetMessage.timestamp
+            )
+        val targetRuntimeIndex = runtimeHistory.indexOfFirst { it.timestamp == targetMessage.timestamp }
+        if (targetRuntimeIndex < 0) {
+            throw IndexOutOfBoundsException(context.getString(R.string.chat_invalid_message_index))
+        }
+        val requestHistory = runtimeHistory.take(targetRuntimeIndex)
+        val requestMessageContent =
+            requestHistory.lastOrNull()
+                ?.takeIf { it.sender == "user" }
+                ?.content
+                .orEmpty()
 
         val currentChat = chatHistoryDelegate.chatHistories.value.firstOrNull { it.id == chatId }
+        val groupParticipantNamesText = buildBoundGroupParticipantNamesText(chatId)
+        val groupOrchestrationMode = groupParticipantNamesText != null
         val workspacePath = currentChat?.workspace
         val roleCardId = resolveRegenerationRoleCardId(chatId, targetMessage)
         val currentRoleName =
@@ -401,6 +414,8 @@ class MessageCoordinationDelegate(
                 chatModelConfigIdOverride = resolvedChatModelConfigIdOverride,
                 chatModelIndexOverride = resolvedChatModelIndexOverride,
                 preferenceProfileIdOverride = resolvedPreferenceProfileIdOverride,
+                groupOrchestrationMode = groupOrchestrationMode,
+                groupParticipantNamesText = groupParticipantNamesText,
                 onVariantPreviewStarted = { previewMessage ->
                     chatHistoryDelegate.addMessageToChat(
                         previewMessage.copy(
@@ -419,7 +434,15 @@ class MessageCoordinationDelegate(
                         chatIdOverride = chatId,
                     )
                     runCatching {
-                        refreshStableContextWindow(chatId = chatId)
+                        refreshStableContextWindow(
+                            chatId = chatId,
+                            roleCardId = roleCardId,
+                            groupOrchestrationMode = groupOrchestrationMode,
+                            groupParticipantNamesText = groupParticipantNamesText,
+                            chatModelConfigIdOverride = resolvedChatModelConfigIdOverride,
+                            chatModelIndexOverride = resolvedChatModelIndexOverride,
+                            preferenceProfileIdOverride = resolvedPreferenceProfileIdOverride
+                        )
                     }.onFailure {
                         AppLogger.w(TAG, "单条重新生成后刷新上下文窗口失败", it)
                     }
@@ -1098,6 +1121,23 @@ class MessageCoordinationDelegate(
         return if (useEnglish) participantNames.joinToString(", ") else participantNames.joinToString("、")
     }
 
+    private suspend fun buildBoundGroupParticipantNamesText(chatId: String): String? {
+        val groupId = chatHistoryDelegate.chatHistories.value
+            .firstOrNull { it.id == chatId }
+            ?.characterGroupId
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        val group = characterGroupCardManager.getCharacterGroupCard(groupId) ?: return null
+        val memberCardsById = group.members
+            .associate { member ->
+                member.characterCardId to characterCardManager.getCharacterCard(member.characterCardId)
+            }
+        return buildGroupParticipantNamesText(
+            members = group.members,
+            memberCardsById = memberCardsById
+        )
+    }
+
     private suspend fun resolveTargetGroupForChat(chatId: String): com.ai.assistance.operit.data.model.CharacterGroupCard? {
         val activePrompt = activePromptManager.getActivePrompt()
         val activeGroupId = (activePrompt as? ActivePrompt.CharacterGroup)
@@ -1666,11 +1706,13 @@ class MessageCoordinationDelegate(
                 val currentChat = chatHistoryDelegate.chatHistories.value.firstOrNull { it.id == originalChatId }
                 val isGroupChat = currentChat?.characterGroupId != null
 
+                val summaryCustomRules = readSummaryCustomRules()
                 val summaryMessage = AIMessageManager.summarizeMemory(
                     enhancedAiService = service,
                     messages = snapshotMessages,
                     autoContinue = false,
-                    isGroupChat = isGroupChat
+                    isGroupChat = isGroupChat,
+                    summaryCustomRules = summaryCustomRules
                 ) ?: return@launch
 
                 val currentChatId = chatHistoryDelegate.currentChatId.value
@@ -1790,8 +1832,9 @@ class MessageCoordinationDelegate(
                 summaryInsertReferenceMessages.getOrNull(insertPosition - 1)?.timestamp
             val afterTimestamp =
                 summaryInsertReferenceMessages.getOrNull(insertPosition)?.timestamp
+            val summaryCustomRules = readSummaryCustomRules()
             val summaryMessage =
-                AIMessageManager.summarizeMemory(service, currentMessages, autoContinue, effectiveIsGroupChat)
+                AIMessageManager.summarizeMemory(service, currentMessages, autoContinue, effectiveIsGroupChat, summaryCustomRules)
 
             if (summaryMessage != null) {
                 chatHistoryDelegate.addSummaryMessage(
@@ -1898,5 +1941,26 @@ class MessageCoordinationDelegate(
 
     fun setUiBridge(uiBridge: ChatServiceUiBridge) {
         this.uiBridge = uiBridge
+    }
+
+    /** 从当前聊天绑定的模型配置中读取自定义总结规则 */
+    private suspend fun readSummaryCustomRules(): String? {
+        return try {
+            val functionalConfigManager = FunctionalConfigManager(context)
+            val modelConfigManager = ModelConfigManager(context)
+            functionalConfigManager.initializeIfNeeded()
+            modelConfigManager.initializeIfNeeded()
+            val functionMappings = functionalConfigManager.functionConfigMappingWithIndexFlow.first()
+            val chatMapping = functionMappings[FunctionType.CHAT] ?: FunctionConfigMapping()
+            if (chatMapping.configId.isNotBlank()) {
+                val config = modelConfigManager.getModelConfigFlow(chatMapping.configId).first()
+                config.summaryCustomRules.takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "读取自定义总结规则失败", e)
+            null
+        }
     }
 }

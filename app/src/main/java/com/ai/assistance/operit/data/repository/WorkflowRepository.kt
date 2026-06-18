@@ -289,6 +289,36 @@ class WorkflowRepository(private val context: Context) {
             Result.failure(e)
         }
     }
+
+    suspend fun setWorkflowEnabled(id: String, enabled: Boolean): Result<Workflow> = withContext(Dispatchers.IO) {
+        try {
+            require(id.isNotBlank()) { "Workflow id cannot be empty" }
+            val file = getWorkflowFile(id)
+            if (!file.exists()) {
+                return@withContext Result.failure(Exception(context.getString(R.string.workflow_not_found)))
+            }
+
+            val workflow = readWorkflowFile(file, id)
+            val updatedWorkflow = workflow.copy(enabled = enabled)
+            val content = json.encodeToString(updatedWorkflow)
+            file.writeText(content)
+
+            AppLogger.d(TAG, "Workflow enabled state updated: ${updatedWorkflow.id} -> $enabled")
+
+            if (updatedWorkflow.enabled && hasScheduleTrigger(updatedWorkflow)) {
+                rescheduleWorkflow(updatedWorkflow.id)
+            } else {
+                unscheduleWorkflow(updatedWorkflow.id)
+            }
+
+            notifyWorkflowsChanged()
+
+            Result.success(updatedWorkflow)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to update workflow enabled state", e)
+            Result.failure(e)
+        }
+    }
     
     /**
      * 删除工作流

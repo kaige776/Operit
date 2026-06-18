@@ -61,8 +61,8 @@ class AIToolHandler private constructor(private val context: Context) {
     }
 
     /**
-     * Registers a notify-only hook for tool call requests.
-     * Hook callbacks must be lightweight and non-blocking.
+     * Registers a hook for tool call lifecycle events and pre-execution interception.
+     * Hook callbacks must be lightweight.
      */
     fun addToolHook(hook: AIToolHook) {
         if (!toolHooks.contains(hook)) {
@@ -80,9 +80,7 @@ class AIToolHandler private constructor(private val context: Context) {
         toolHooks.clear()
     }
 
-    /**
-     * Dispatches hook callbacks in a safe, notify-only way.
-     */
+    /** Dispatches lifecycle hook callbacks safely. */
     private inline fun notifyHooks(eventName: String, action: (AIToolHook) -> Unit) {
         toolHooks.forEach { hook ->
             try {
@@ -96,6 +94,39 @@ class AIToolHandler private constructor(private val context: Context) {
     /** Notify that a tool call request is received. */
     fun notifyToolCallRequested(tool: AITool) {
         notifyHooks("onToolCallRequested") { it.onToolCallRequested(tool) }
+    }
+
+    /** Ask hooks whether the tool call should continue. */
+    fun checkToolInterception(tool: AITool): AIToolHookDecision {
+        toolHooks.forEach { hook ->
+            val decision =
+                    try {
+                        hook.onToolCallIntercept(tool)
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "AIToolHook interception failed at onToolCallIntercept", e)
+                        return AIToolHookDecision.Block(
+                                "Tool hook callback failed at onToolCallIntercept."
+                        )
+                    }
+            when (decision) {
+                AIToolHookDecision.Allow -> Unit
+                is AIToolHookDecision.Block -> return decision
+            }
+        }
+        return AIToolHookDecision.Allow
+    }
+
+    /** Build the standard result returned when a hook blocks a tool call. */
+    fun buildToolInterceptionResult(
+            toolName: String,
+            decision: AIToolHookDecision.Block
+    ): ToolResult {
+        return ToolResult(
+                toolName = toolName,
+                success = false,
+                result = StringResultData(""),
+                error = decision.reason
+        )
     }
 
     /** Notify that permission check finished for a tool call. */
@@ -323,6 +354,16 @@ class AIToolHandler private constructor(private val context: Context) {
     /** Executes a tool directly */
     fun executeTool(tool: AITool): ToolResult {
         notifyToolCallRequested(tool)
+        when (val interception = checkToolInterception(tool)) {
+            AIToolHookDecision.Allow -> Unit
+            is AIToolHookDecision.Block -> {
+                val interceptedResult = buildToolInterceptionResult(tool.name, interception)
+                notifyToolExecutionResult(tool, interceptedResult)
+                notifyToolExecutionFinished(tool)
+                return interceptedResult
+            }
+        }
+
         val executor = getToolExecutorOrActivate(tool.name)
 
         if (executor == null) {
@@ -369,6 +410,17 @@ class AIToolHandler private constructor(private val context: Context) {
     /** Executes a tool and preserves intermediate streaming results when supported by the executor. */
     fun executeToolAndStream(tool: AITool): Flow<ToolResult> = flow {
         notifyToolCallRequested(tool)
+        when (val interception = checkToolInterception(tool)) {
+            AIToolHookDecision.Allow -> Unit
+            is AIToolHookDecision.Block -> {
+                val interceptedResult = buildToolInterceptionResult(tool.name, interception)
+                notifyToolExecutionResult(tool, interceptedResult)
+                notifyToolExecutionFinished(tool)
+                emit(interceptedResult)
+                return@flow
+            }
+        }
+
         val executor = getToolExecutorOrActivate(tool.name)
 
         if (executor == null) {

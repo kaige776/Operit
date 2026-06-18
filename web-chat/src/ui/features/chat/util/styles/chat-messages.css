@@ -786,7 +786,7 @@
 .composer-attachment-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .chat-message-attachments.align-end,
@@ -825,9 +825,10 @@
 
 .attachment-chip {
   min-width: 0;
-  max-width: min(100%, 240px);
-  padding: 8px 10px;
-  border-radius: 14px;
+  max-width: min(100%, 128px);
+  height: 26px;
+  padding: 2px 6px;
+  border-radius: 13px;
   border: 1px solid var(--chat-border);
   background: var(--chat-card-soft);
 }
@@ -837,25 +838,46 @@
   color: var(--chat-text-soft);
 }
 
-.attachment-chip-preview {
-  width: 38px;
-  height: 38px;
+.attachment-chip.is-image {
+  position: relative;
+  width: 52px;
+  height: 52px;
   overflow: hidden;
-  border-radius: 10px;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--chat-surface-color);
 }
 
-.attachment-chip-preview img {
+.attachment-chip.is-image img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.attachment-chip.is-image button {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
 }
 
 .attachment-chip-copy {
   display: flex;
   min-width: 0;
   flex: 1;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
 }
 
 .attachment-chip-copy strong,
@@ -865,9 +887,13 @@
   white-space: nowrap;
 }
 
-.attachment-chip-copy span {
+.attachment-chip-copy strong {
+  max-width: 80px;
   font-size: 12px;
-  color: var(--chat-text-soft);
+}
+
+.attachment-chip-copy span {
+  display: none;
 }
 
 .bubble-message-composable {

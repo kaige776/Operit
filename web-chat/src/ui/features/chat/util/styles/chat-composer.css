@@ -52,17 +52,16 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   overflow: visible;
 }
 
 .classic-chat-input-section {
-  padding: 8px 12px 12px;
-  border-top: 1px solid var(--chat-field-border);
-  border-top-left-radius: 20px;
-  border-top-right-radius: 20px;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
   background: var(--chat-composer-bg);
-  box-shadow: 0 -10px 22px var(--chat-shadow);
+  box-shadow: none;
 }
 
 .agent-chat-input-section {
@@ -74,10 +73,14 @@
 }
 
 .chat-composer-host.is-floating .classic-chat-input-section {
-  margin: 0 8px 6px;
-  border: 1px solid var(--chat-border);
+  margin: 6px 8px;
+  border: 0;
   border-radius: 22px;
-  box-shadow: 0 16px 32px var(--chat-shadow);
+  box-shadow: 0 4px 12px var(--chat-shadow);
+}
+
+.chat-composer-host.is-floating .classic-input-row {
+  padding: 6px 14px;
 }
 
 .chat-composer-host.is-transparent .classic-chat-input-section {
@@ -219,7 +222,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px 0;
+  padding: 8px 22px;
 }
 
 .classic-input-field,
@@ -240,11 +243,11 @@
 }
 
 .composer-attachment-strip.is-classic {
-  padding: 0 4px;
+  padding: 0 16px 6px;
 }
 
 .composer-attachment-strip.is-agent {
-  padding: 4px 12px;
+  padding: 0 12px 6px;
 }
 
 .agent-input-card {
@@ -329,6 +332,8 @@
 .classic-input-field textarea {
   min-height: 30px;
   max-height: 120px;
+  font-size: 13px;
+  line-height: 16px;
 }
 
 .agent-input-field textarea {

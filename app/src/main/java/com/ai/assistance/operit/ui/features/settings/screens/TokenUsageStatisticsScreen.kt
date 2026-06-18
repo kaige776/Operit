@@ -32,6 +32,7 @@ import com.ai.assistance.operit.data.model.BillingMode
 import com.ai.assistance.operit.data.preferences.ApiPreferences
 import com.ai.assistance.operit.data.repository.ChatHistoryManager
 import com.ai.assistance.operit.ui.components.CustomScaffold
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 private data class ModelCost(
@@ -323,6 +324,7 @@ fun TokenUsageStatisticsScreen(
                     val billingMode = modelBillingMode[providerModel] ?: defaults.billingMode
                     val requestCount = providerModelRequestCounts[providerModel] ?: 0
                     val pricePerRequest = modelPricePerRequest[providerModel] ?: defaults.pricePerRequest
+                    val displayCurrency = PricingCurrency.CNY
 
                     TokenUsageModelCard(
                         modelName = providerModel,
@@ -330,12 +332,12 @@ fun TokenUsageStatisticsScreen(
                         cachedInputTokens = cached,
                         outputTokens = output,
                         requestCount = requestCount,
-                        cost = cost,
-                        inputPrice = pricing.first,
-                        outputPrice = pricing.second,
+                        cost = convertToCny(cost, currency, usdToCnyRate),
+                        inputPrice = convertToCny(pricing.first, currency, usdToCnyRate),
+                        outputPrice = convertToCny(pricing.second, currency, usdToCnyRate),
                         billingMode = billingMode,
-                        pricePerRequest = pricePerRequest,
-                        currency = currency,
+                        pricePerRequest = convertToCny(pricePerRequest, currency, usdToCnyRate),
+                        currency = displayCurrency,
                         onClick = {
                             selectedModel = providerModel
                             showPricingDialog = true
@@ -364,12 +366,32 @@ fun TokenUsageStatisticsScreen(
         val currentBillingMode = modelBillingMode[selectedModel] ?: defaults.billingMode
         val currentPricePerRequest = modelPricePerRequest[selectedModel] ?: defaults.pricePerRequest
         val currency = modelCurrencies[selectedModel] ?: defaults.currency
+        val editCurrency = PricingCurrency.CNY
+        val currentPricingCny = Triple(
+            convertToCny(currentPricing.first, currency, usdToCnyRate),
+            convertToCny(currentPricing.second, currency, usdToCnyRate),
+            convertToCny(currentPricing.third, currency, usdToCnyRate)
+        )
+        val currentPricePerRequestCny = convertToCny(
+            currentPricePerRequest,
+            currency,
+            usdToCnyRate
+        )
 
         var billingMode by remember { mutableStateOf(currentBillingMode) }
-        var inputPrice by remember { mutableStateOf(currentPricing.first.toString()) }
-        var outputPrice by remember { mutableStateOf(currentPricing.second.toString()) }
-        var cachedInputPrice by remember { mutableStateOf(currentPricing.third.toString()) }
-        var pricePerRequest by remember { mutableStateOf(currentPricePerRequest.toString()) }
+        var inputPrice by remember { mutableStateOf(formatEditablePrice(currentPricingCny.first)) }
+        var outputPrice by remember { mutableStateOf(formatEditablePrice(currentPricingCny.second)) }
+        var cachedInputPrice by remember { mutableStateOf(formatEditablePrice(currentPricingCny.third)) }
+        var pricePerRequest by remember { mutableStateOf(formatEditablePrice(currentPricePerRequestCny)) }
+        val tokenPriceInputsAreValid =
+            inputPrice.toDoubleOrNull() != null &&
+                    outputPrice.toDoubleOrNull() != null &&
+                    cachedInputPrice.toDoubleOrNull() != null
+        val countPriceInputIsValid = pricePerRequest.toDoubleOrNull() != null
+        val pricingInputIsValid = when (billingMode) {
+            BillingMode.TOKEN -> tokenPriceInputsAreValid
+            BillingMode.COUNT -> countPriceInputIsValid
+        }
 
         AlertDialog(
             onDismissRequest = { showPricingDialog = false },
@@ -379,7 +401,7 @@ fun TokenUsageStatisticsScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(
-                        text = stringResource(id = R.string.settings_pricing_currency_hint, currency.code),
+                        text = stringResource(id = R.string.settings_pricing_currency_hint, editCurrency.code),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -414,7 +436,7 @@ fun TokenUsageStatisticsScreen(
                         Text(
                             text = stringResource(
                                 id = R.string.settings_pricing_description_with_currency,
-                                currency.code
+                                editCurrency.code
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -425,7 +447,7 @@ fun TokenUsageStatisticsScreen(
                             onValueChange = { inputPrice = it },
                             label = {
                                 Text(
-                                    "${stringResource(id = R.string.settings_input_price_per_million)} (${currency.code})"
+                                    "${stringResource(id = R.string.settings_input_price_per_million)} (${editCurrency.code})"
                                 )
                             },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -437,7 +459,7 @@ fun TokenUsageStatisticsScreen(
                             onValueChange = { cachedInputPrice = it },
                             label = {
                                 Text(
-                                    "${stringResource(id = R.string.settings_cached_input_price_per_million)} (${currency.code})"
+                                    "${stringResource(id = R.string.settings_cached_input_price_per_million)} (${editCurrency.code})"
                                 )
                             },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -449,7 +471,7 @@ fun TokenUsageStatisticsScreen(
                             onValueChange = { outputPrice = it },
                             label = {
                                 Text(
-                                    "${stringResource(id = R.string.settings_output_price_per_million)} (${currency.code})"
+                                    "${stringResource(id = R.string.settings_output_price_per_million)} (${editCurrency.code})"
                                 )
                             },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -459,7 +481,7 @@ fun TokenUsageStatisticsScreen(
                         Text(
                             text = stringResource(
                                 id = R.string.settings_token_price_description_with_currency,
-                                currency.code
+                                editCurrency.code
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -472,7 +494,7 @@ fun TokenUsageStatisticsScreen(
                                 Text(
                                     stringResource(
                                         id = R.string.settings_price_per_request_with_currency,
-                                        currency.code
+                                        editCurrency.code
                                     )
                                 )
                             },
@@ -484,39 +506,65 @@ fun TokenUsageStatisticsScreen(
             },
             confirmButton = {
                 TextButton(
+                    enabled = pricingInputIsValid,
                     onClick = {
                         scope.launch {
                             modelBillingMode[selectedModel] = billingMode
                             apiPreferences.setBillingModeForProviderModel(selectedModel, billingMode)
 
                             if (billingMode == BillingMode.TOKEN) {
-                                val inputPriceValue =
-                                    inputPrice.toDoubleOrNull() ?: defaults.inputPricePerMillion
-                                val outputPriceValue =
-                                    outputPrice.toDoubleOrNull() ?: defaults.outputPricePerMillion
-                                val cachedInputPriceValue =
-                                    cachedInputPrice.toDoubleOrNull()
-                                        ?: defaults.cachedInputPricePerMillion
+                                val inputPriceValueCny = inputPrice.toDoubleOrNull()
+                                val outputPriceValueCny = outputPrice.toDoubleOrNull()
+                                val cachedInputPriceValueCny = cachedInputPrice.toDoubleOrNull()
 
-                                modelPricing[selectedModel] = Triple(
-                                    inputPriceValue,
-                                    outputPriceValue,
-                                    cachedInputPriceValue
-                                )
-                                apiPreferences.setModelInputPrice(selectedModel, inputPriceValue)
-                                apiPreferences.setModelOutputPrice(selectedModel, outputPriceValue)
-                                apiPreferences.setModelCachedInputPrice(
-                                    selectedModel,
-                                    cachedInputPriceValue
-                                )
+                                if (
+                                    inputPriceValueCny != null &&
+                                    outputPriceValueCny != null &&
+                                    cachedInputPriceValueCny != null
+                                ) {
+                                    val inputPriceValue = convertCnyToPricingCurrency(
+                                        inputPriceValueCny,
+                                        currency,
+                                        usdToCnyRate
+                                    )
+                                    val outputPriceValue = convertCnyToPricingCurrency(
+                                        outputPriceValueCny,
+                                        currency,
+                                        usdToCnyRate
+                                    )
+                                    val cachedInputPriceValue = convertCnyToPricingCurrency(
+                                        cachedInputPriceValueCny,
+                                        currency,
+                                        usdToCnyRate
+                                    )
+
+                                    modelPricing[selectedModel] = Triple(
+                                        inputPriceValue,
+                                        outputPriceValue,
+                                        cachedInputPriceValue
+                                    )
+                                    apiPreferences.setModelInputPrice(selectedModel, inputPriceValue)
+                                    apiPreferences.setModelOutputPrice(selectedModel, outputPriceValue)
+                                    apiPreferences.setModelCachedInputPrice(
+                                        selectedModel,
+                                        cachedInputPriceValue
+                                    )
+                                }
                             } else {
-                                val pricePerRequestValue =
-                                    pricePerRequest.toDoubleOrNull() ?: defaults.pricePerRequest
-                                modelPricePerRequest[selectedModel] = pricePerRequestValue
-                                apiPreferences.setPricePerRequestForProviderModel(
-                                    selectedModel,
-                                    pricePerRequestValue
-                                )
+                                val pricePerRequestValueCny = pricePerRequest.toDoubleOrNull()
+
+                                if (pricePerRequestValueCny != null) {
+                                    val pricePerRequestValue = convertCnyToPricingCurrency(
+                                        pricePerRequestValueCny,
+                                        currency,
+                                        usdToCnyRate
+                                    )
+                                    modelPricePerRequest[selectedModel] = pricePerRequestValue
+                                    apiPreferences.setPricePerRequestForProviderModel(
+                                        selectedModel,
+                                        pricePerRequestValue
+                                    )
+                                }
                             }
                         }
 
@@ -822,10 +870,25 @@ private fun convertToCny(amount: Double, currency: PricingCurrency, usdToCnyRate
     }
 }
 
+private fun convertCnyToPricingCurrency(
+    amount: Double,
+    currency: PricingCurrency,
+    usdToCnyRate: Double
+): Double {
+    return when (currency) {
+        PricingCurrency.CNY -> amount
+        PricingCurrency.USD -> amount / usdToCnyRate
+    }
+}
+
 private fun formatCurrencyAmount(amount: Double, currency: PricingCurrency): String {
-    return "${currency.symbol}${String.format("%.2f", amount)}"
+    return "${currency.symbol}${String.format(Locale.US, "%.2f", amount)}"
 }
 
 private fun formatPricePerMillion(price: Double, currency: PricingCurrency): String {
-    return "${currency.symbol}${String.format("%.2f", price)}/1M"
+    return "${currency.symbol}${String.format(Locale.US, "%.2f", price)}/1M"
+}
+
+private fun formatEditablePrice(price: Double): String {
+    return String.format(Locale.US, "%.6f", price).trimEnd('0').trimEnd('.')
 }

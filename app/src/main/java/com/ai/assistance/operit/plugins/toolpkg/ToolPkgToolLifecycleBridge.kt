@@ -2,6 +2,7 @@ package com.ai.assistance.operit.plugins.toolpkg
 
 import com.ai.assistance.operit.core.application.OperitApplication
 import com.ai.assistance.operit.core.tools.AIToolHook
+import com.ai.assistance.operit.core.tools.AIToolHookDecision
 import com.ai.assistance.operit.core.tools.AIToolHandler
 import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.core.tools.packTool.ToolPkgContainerRuntime
@@ -20,6 +21,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 
 private const val TAG = "ToolPkgToolLifecycleBridge"
+private const val TOOL_LIFECYCLE_EVENT_TOOL_CALL_INTERCEPT = "tool_call_intercept"
 
 private data class ToolLifecycleDispatch(
     val eventName: String,
@@ -60,6 +62,49 @@ internal object ToolPkgToolLifecycleBridge : AIToolHook {
             eventName = "tool_call_requested",
             eventPayload = buildBasePayload(tool)
         )
+    }
+
+    override fun onToolCallIntercept(tool: AITool): AIToolHookDecision {
+        val eventPayload = buildBasePayload(tool)
+        val manager = toolPkgPackageManager()
+        hooks.forEach { hook ->
+            val raw =
+                manager.runToolPkgMainHook(
+                    containerPackageName = hook.containerPackageName,
+                    functionName = hook.functionName,
+                    event = TOOLPKG_EVENT_TOOL_LIFECYCLE,
+                    eventName = TOOL_LIFECYCLE_EVENT_TOOL_CALL_INTERCEPT,
+                    pluginId = hook.hookId,
+                    inlineFunctionSource = hook.functionSource,
+                    eventPayload = eventPayload
+                ).getOrElse { error ->
+                    AppLogger.e(
+                        TAG,
+                        "ToolPkg tool lifecycle intercept hook failed: ${hook.containerPackageName}:${hook.hookId}",
+                        error
+                    )
+                    return AIToolHookDecision.Block(
+                        "ToolPkg tool lifecycle intercept hook failed: ${error.javaClass.simpleName}"
+                    )
+                }
+            val decoded =
+                try {
+                    decodeToolPkgHookResult(raw)
+                } catch (error: Exception) {
+                    AppLogger.e(
+                        TAG,
+                        "ToolPkg tool lifecycle intercept hook returned invalid result: ${hook.containerPackageName}:${hook.hookId}",
+                        error
+                    )
+                    return AIToolHookDecision.Block(
+                        "ToolPkg tool lifecycle intercept hook returned invalid result: ${error.javaClass.simpleName}"
+                    )
+                }
+            parseToolCallInterceptDecision(decoded)?.let { decision ->
+                return decision
+            }
+        }
+        return AIToolHookDecision.Allow
     }
 
     override fun onToolPermissionChecked(tool: AITool, granted: Boolean, reason: String?) {
@@ -140,6 +185,39 @@ internal object ToolPkgToolLifecycleBridge : AIToolHook {
                     error
                 )
             }
+        }
+    }
+
+    private fun parseToolCallInterceptDecision(decoded: Any?): AIToolHookDecision? {
+        return when (decoded) {
+            null -> null
+            is JSONObject -> parseToolCallInterceptDecision(jsonObjectToMap(decoded))
+            is Map<*, *> -> {
+                val action = decoded["action"]
+                if (action !is String) {
+                    return null
+                }
+                when (action.trim().lowercase()) {
+                    "block" -> {
+                        val reasonValue = decoded["reason"]
+                        if (reasonValue !is String) {
+                            return AIToolHookDecision.Block(
+                                "Tool lifecycle hook block result requires a string reason."
+                            )
+                        }
+                        val reason = reasonValue.trim()
+                        if (reason.isEmpty()) {
+                            AIToolHookDecision.Block(
+                                "Tool lifecycle hook block result requires a non-empty reason."
+                            )
+                        } else {
+                            AIToolHookDecision.Block(reason)
+                        }
+                    }
+                    else -> null
+                }
+            }
+            else -> null
         }
     }
 

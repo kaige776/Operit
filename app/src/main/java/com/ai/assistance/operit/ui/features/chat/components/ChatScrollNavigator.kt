@@ -69,6 +69,7 @@ import com.ai.assistance.operit.data.model.ChatMessageLocatorPreview
 import com.ai.assistance.operit.ui.features.chat.components.lazy.LazyListState as ChatLazyListState
 import com.ai.assistance.operit.util.AppLogger
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -177,10 +178,16 @@ internal fun ChatScrollNavigator(
 
         isLoadingLocatorEntries = true
         locatorLoadFailed = false
-        locatorEntries =
-            runCatching { loadLocatorEntries(currentChatId, "") }
-                .onFailure { locatorLoadFailed = true }
-                .getOrElse { emptyList() }
+        try {
+            locatorEntries = loadLocatorEntries(currentChatId, "")
+            locatorLoadFailed = false
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "加载聊天定位预览失败", e)
+            locatorEntries = emptyList()
+            locatorLoadFailed = true
+        }
         isLoadingLocatorEntries = false
     }
 
@@ -424,10 +431,16 @@ internal fun ChatScrollNavigator(
 
         isLoadingLocatorEntries = true
         locatorLoadFailed = false
-        locatorEntries =
-            runCatching { loadLocatorEntries(currentChatId, "") }
-                .onFailure { locatorLoadFailed = true }
-                .getOrElse { emptyList() }
+        try {
+            locatorEntries = loadLocatorEntries(currentChatId, "")
+            locatorLoadFailed = false
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "加载聊天定位预览失败", e)
+            locatorEntries = emptyList()
+            locatorLoadFailed = true
+        }
         isLoadingLocatorEntries = false
     }
 
@@ -621,7 +634,12 @@ private fun ChatMessageLocatorDialog(
             searchEntries
         }
     val dialogIsLoading = isLoading || isLoadingSearchEntries
-    val dialogLoadFailed = loadFailed || searchLoadFailed
+    val dialogLoadFailed =
+        if (normalizedSearchQuery.isBlank()) {
+            loadFailed
+        } else {
+            searchLoadFailed
+        }
     val indexedEntries =
         activeLocatorEntries.mapIndexed { index, preview ->
             ChatMessageLocatorEntry(index = preview.messageIndex ?: index, preview = preview)
@@ -663,6 +681,9 @@ private fun ChatMessageLocatorDialog(
         delay(180)
         try {
             searchEntries = loadLocatorEntries(currentChatId, normalizedSearchQuery)
+            searchLoadFailed = false
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLogger.e(TAG, "搜索聊天定位预览失败", e)
             searchEntries = emptyList()

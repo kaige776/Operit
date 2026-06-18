@@ -1542,10 +1542,8 @@ export function useChatViewModel(): ChatViewModel {
     [chats, selectedChatId]
   );
 
-  const activeChatStyle: ChatStyle =
-    theme?.chat_style === 'bubble' || boot?.default_chat_style === 'bubble' ? 'bubble' : 'cursor';
-  const activeInputStyle: InputStyle =
-    theme?.input.style === 'agent' || boot?.default_input_style === 'agent' ? 'agent' : 'classic';
+  const activeChatStyle: ChatStyle = theme?.chat_style === 'bubble' ? 'bubble' : 'cursor';
+  const activeInputStyle: InputStyle = theme?.input.style === 'agent' ? 'agent' : 'classic';
 
   const activeCharacterName = characterSelector?.active_prompt.name ?? '当前角色';
   const activeCharacterAvatarUrl = characterSelector?.active_prompt.avatar_url ?? null;

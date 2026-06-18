@@ -42,6 +42,14 @@ class QwenAIProvider(
         enableToolCall = enableToolCall
     ) {
 
+    override fun buildInputAudioPayload(link: MediaLink): JSONObject {
+        val payload = super.buildInputAudioPayload(link)
+        if (qwenProviderType == ApiProviderType.ALIYUN) {
+            payload.put("data", "data:${link.mimeType};base64,${link.base64Data}")
+        }
+        return payload
+    }
+
     /**
      * 重写创建请求体的方法，以支持Qwen的`enable_thinking`参数。
      */

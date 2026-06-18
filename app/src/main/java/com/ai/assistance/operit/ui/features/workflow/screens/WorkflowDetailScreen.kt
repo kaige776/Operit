@@ -305,14 +305,21 @@ fun WorkflowDetailScreen(
                     workflow = workflow,
                     onDismiss = { showEditDialog = false },
                     onSave = { name, description, enabled ->
-                        viewModel.updateWorkflow(
-                            workflow.copy(
-                                name = name,
-                                description = description,
-                                enabled = enabled
-                            )
-                        ) {
-                            showEditDialog = false
+                        val contentChanged = workflow.name != name || workflow.description != description
+                        if (contentChanged) {
+                            viewModel.updateWorkflow(
+                                workflow.copy(
+                                    name = name,
+                                    description = description,
+                                    enabled = enabled
+                                )
+                            ) {
+                                showEditDialog = false
+                            }
+                        } else {
+                            viewModel.setWorkflowEnabled(workflow.id, enabled) {
+                                showEditDialog = false
+                            }
                         }
                     }
                 )

@@ -21,7 +21,8 @@ enum class MarketSortOption(
 ) {
     UPDATED(R.string.market_sort_updated),
     DOWNLOADS(R.string.market_sort_downloads),
-    LIKES(R.string.market_sort_likes)
+    LIKES(R.string.market_sort_likes),
+    FEATURED(R.string.market_sort_featured)
 }
 
 data class MarketEntryStats(
@@ -51,6 +52,7 @@ fun MarketSortOption.toRankMetric(): String {
         MarketSortOption.UPDATED -> "updated"
         MarketSortOption.DOWNLOADS -> "downloads"
         MarketSortOption.LIKES -> "likes"
+        MarketSortOption.FEATURED -> "featured"
     }
 }
 
@@ -94,7 +96,8 @@ fun <T> sortMarketEntries(
     likesSelector: (T) -> Int
 ): List<T> {
     return when (sortOption) {
-        MarketSortOption.UPDATED ->
+        MarketSortOption.UPDATED,
+        MarketSortOption.FEATURED ->
             items.sortedWith(
                 compareByDescending<T> { updatedAtSelector(it) }
                     .thenBy { titleSelector(it).lowercase() }

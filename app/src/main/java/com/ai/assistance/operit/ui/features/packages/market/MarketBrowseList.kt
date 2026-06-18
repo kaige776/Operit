@@ -140,7 +140,7 @@ fun <T> MarketBrowseList(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (sortOption == MarketSortOption.UPDATED) {
+                        if (sortOption == MarketSortOption.UPDATED || sortOption == MarketSortOption.FEATURED) {
                             groupedMarketItems(
                                 items = items,
                                 itemKey = itemKey,

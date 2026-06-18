@@ -10,6 +10,23 @@
   box-shadow: 0 12px 28px var(--chat-shadow);
 }
 
+.attachment-selector-sheet {
+  width: 100%;
+  padding: 16px 0;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  background: var(--chat-composer-bg);
+  box-shadow: 0 -1px 2px color-mix(in srgb, var(--chat-shadow) 55%, transparent);
+}
+
+.attachment-selector-handle {
+  width: 32px;
+  height: 3px;
+  margin: 0 auto 16px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--chat-text-main) 10%, transparent);
+}
+
 .attachment-selector-panel header span,
 .configuration-screen-header span,
 .fullscreen-input-dialog header span,
@@ -23,9 +40,9 @@
 
 .attachment-selector-button {
   display: flex;
-  min-height: 36px;
-  align-items: flex-start;
-  justify-content: center;
+  height: 36px;
+  align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   padding: 0 12px;
   background: transparent;
@@ -44,6 +61,7 @@
 
 .attachment-selector-icon {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   width: 16px;
@@ -54,6 +72,40 @@
 .attachment-selector-list {
   display: flex;
   flex-direction: column;
+}
+
+.attachment-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  row-gap: 16px;
+  min-height: 208px;
+  padding: 0 16px;
+}
+
+.attachment-selector-sheet .attachment-selector-button {
+  width: 70px;
+  height: auto;
+  min-height: 96px;
+  flex-direction: column;
+  justify-self: center;
+  gap: 8px;
+  padding: 8px;
+  text-align: center;
+}
+
+.attachment-selector-sheet .attachment-selector-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--chat-secondary) 22%, var(--chat-surface-variant-color));
+  color: var(--chat-primary);
+}
+
+.attachment-selector-sheet .attachment-selector-button strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .attachment-selector-panel header {

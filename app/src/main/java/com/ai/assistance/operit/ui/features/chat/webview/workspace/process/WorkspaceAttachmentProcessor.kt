@@ -1,38 +1,47 @@
 package com.ai.assistance.operit.ui.features.chat.webview.workspace.process
 
+import android.content.Context
+import com.ai.assistance.operit.R
+
 object WorkspaceAttachmentProcessor {
     fun generateWorkspaceAttachment(
+        context: Context,
         workspaceEnv: String?,
         changes: WorkspaceChangeSnapshot = WorkspaceChangeSnapshot(emptyList(), 0)
     ): String {
         val workspaceTag = workspaceEnv?.trim().orEmpty()
         return buildString {
-            appendLine("当前对话已附着工作区。")
+            appendLine(context.getString(R.string.workspace_attachment_attached))
             if (workspaceTag.isNotEmpty()) {
-                appendLine("工作区环境：${escapeText(workspaceTag)}")
+                appendLine(context.getString(R.string.workspace_attachment_environment, escapeText(workspaceTag)))
             }
             changes.initialRootStructure?.takeIf { it.isNotBlank() }?.let { rootStructure ->
-                appendLine("首次加载工作区：")
+                appendLine(context.getString(R.string.workspace_attachment_initial_load))
                 appendLine(escapeText(rootStructure))
             }
             if (changes.changes.isNotEmpty() || changes.omittedCount > 0) {
-                appendLine("工作区文件变化：")
+                appendLine(context.getString(R.string.workspace_attachment_file_changes))
                 changes.changes.forEach { change ->
-                    appendLine("- ${change.kind.displayName()} ${escapeText(change.relativePath)}")
+                    appendLine("- ${change.kind.displayName(context)} ${escapeText(change.relativePath)}")
                 }
                 if (changes.omittedCount > 0) {
-                    appendLine("- 还有 ${changes.omittedCount} 个变化未列出")
+                    appendLine(
+                        context.getString(
+                            R.string.workspace_attachment_omitted_changes,
+                            changes.omittedCount
+                        )
+                    )
                 }
             }
         }.trim()
     }
 
-    private fun WorkspaceFileChangeKind.displayName(): String {
+    private fun WorkspaceFileChangeKind.displayName(context: Context): String {
         return when (this) {
-            WorkspaceFileChangeKind.CREATED -> "新增"
-            WorkspaceFileChangeKind.MODIFIED -> "修改"
-            WorkspaceFileChangeKind.DELETED -> "删除"
-            WorkspaceFileChangeKind.MOVED -> "移动"
+            WorkspaceFileChangeKind.CREATED -> context.getString(R.string.workspace_attachment_change_created)
+            WorkspaceFileChangeKind.MODIFIED -> context.getString(R.string.workspace_attachment_change_modified)
+            WorkspaceFileChangeKind.DELETED -> context.getString(R.string.workspace_attachment_change_deleted)
+            WorkspaceFileChangeKind.MOVED -> context.getString(R.string.workspace_attachment_change_moved)
         }
     }
 

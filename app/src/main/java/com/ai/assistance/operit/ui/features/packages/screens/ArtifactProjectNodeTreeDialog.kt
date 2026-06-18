@@ -51,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.res.stringResource
+import com.ai.assistance.operit.R
 import com.ai.assistance.operit.data.api.ArtifactProjectDetailResponse
 import com.ai.assistance.operit.data.api.ArtifactProjectNodeResponse
 import com.ai.assistance.operit.data.api.GitHubIssue
@@ -89,9 +91,9 @@ fun ArtifactProjectNodeTreeLoadingDialog(
                             .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "节点查看",
+                    ) {
+                        Text(
+                        text = stringResource(R.string.artifact_project_node_view_title),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -102,7 +104,7 @@ fun ArtifactProjectNodeTreeLoadingDialog(
                     )
                     CircularProgressIndicator()
                     Text(
-                        text = "正在加载项目节点...",
+                        text = stringResource(R.string.artifact_project_nodes_loading),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -164,7 +166,7 @@ fun ArtifactProjectNodeTreeDialog(
                             )
                             if (isSelectionMode) {
                                 Text(
-                                    text = "点击节点选中，再次点击可取消。",
+                                    text = stringResource(R.string.artifact_project_node_selection_hint),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -181,7 +183,13 @@ fun ArtifactProjectNodeTreeDialog(
                             enabled = !isSelectionMode || confirmSelectionEnabled,
                             modifier = Modifier.align(Alignment.CenterEnd)
                         ) {
-                            Text(if (isSelectionMode) "确认" else "关闭")
+                            Text(
+                                if (isSelectionMode) {
+                                    stringResource(R.string.confirm)
+                                } else {
+                                    stringResource(R.string.close)
+                                }
+                            )
                         }
                     }
 
