@@ -75,6 +75,13 @@ fun ExternalHttpChatSettingsScreen(onBackPressed: () -> Unit) {
         portText = savedPort.toString()
     }
 
+    var bearerTokenText by remember { mutableStateOf(bearerToken) }
+    LaunchedEffect(bearerToken) {
+        if (bearerTokenText != bearerToken) {
+            bearerTokenText = bearerToken
+        }
+    }
+
     val accessUrls = remember(savedPort) {
         ExternalChatHttpNetworkInfo.getLocalIpv4Addresses().map { ip ->
             "http://$ip:$savedPort"
@@ -151,6 +158,17 @@ adb shell am broadcast \
                 AIForegroundService.ensureRunningForExternalHttp(context)
             }
             showToast(context.getString(R.string.external_http_chat_port_saved))
+        }
+    }
+
+    fun saveToken() {
+        scope.launch {
+            if (bearerTokenText.length < 6) {
+                showToast(context.getString(R.string.external_http_chat_token_length_error))
+                return@launch
+            }
+            preferences.setBearerToken(bearerTokenText)
+            showToast(context.getString(R.string.external_http_chat_token_saved))
         }
     }
 
@@ -248,14 +266,16 @@ adb shell am broadcast \
                 }
             ) {
                 OutlinedTextField(
-                    value = displayToken,
-                    onValueChange = {},
+                    value = bearerTokenText,
+                    onValueChange = { bearerTokenText = it },
                     modifier = Modifier.fillMaxWidth(),
-                    readOnly = true,
                     label = { Text(stringResource(R.string.external_http_chat_token)) }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = ::saveToken) {
+                        Text(stringResource(R.string.external_http_chat_save_token))
+                    }
                     TextButton(
                         onClick = {
                             if (bearerToken.isBlank()) {
